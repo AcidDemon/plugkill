@@ -1,0 +1,23 @@
+[package]
+name = "usbkill"
+version = "0.1.0"
+edition = "2021"
+description = "USB kill-switch daemon — shuts down the system when USB device changes are detected"
+license = "GPL-3.0"
+authors = ["usbkill contributors"]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+log = "0.4"
+env_logger = "0.11"
+nix = { version = "0.29", features = ["signal", "fs", "reboot", "user"] }
+libc = "0.2"
+signal-hook = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+assert_cmd = "2"
+predicates = "3"
+nix = { version = "0.29", features = ["user"] }
