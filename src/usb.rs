@@ -5,6 +5,19 @@ use std::fmt;
 use std::fs;
 use std::path::Path;
 
+/// Extended USB device information for display purposes.
+#[derive(Debug, Clone)]
+pub struct UsbDeviceInfo {
+    pub vendor_id: String,
+    pub product_id: String,
+    pub manufacturer: Option<String>,
+    pub product: Option<String>,
+    pub serial: Option<String>,
+    pub speed: Option<String>,
+    pub busnum: Option<String>,
+    pub devnum: Option<String>,
+}
+
 /// A unique identifier for a USB device (vendor:product).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UsbDeviceId {
@@ -245,6 +258,172 @@ pub fn enumerate_devices_from(sysfs_root: &Path) -> Result<DeviceSnapshot, Error
     Ok(DeviceSnapshot { devices })
 }
 
+/// Enumerate all connected USB devices with extended sysfs info for display.
+pub fn enumerate_devices_detailed() -> Result<Vec<UsbDeviceInfo>, Error> {
+    enumerate_devices_detailed_from(Path::new("/sys/bus/usb/devices"))
+}
+
+/// Enumerate USB devices with extended info from a custom sysfs root (for testing).
+pub fn enumerate_devices_detailed_from(sysfs_root: &Path) -> Result<Vec<UsbDeviceInfo>, Error> {
+    let entries = fs::read_dir(sysfs_root).map_err(|e| {
+        Error::Usb(format!(
+            "cannot read USB sysfs directory {}: {}",
+            sysfs_root.display(),
+            e
+        ))
+    })?;
+
+    let mut devices = Vec::new();
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                warn!("error reading sysfs directory entry: {e}");
+                continue;
+            }
+        };
+
+        let dev_path = entry.path();
+
+        let vendor_id = match read_sysfs_attr(&dev_path.join("idVendor"))? {
+            Some(v) => v,
+            None => continue,
+        };
+        let product_id = match read_sysfs_attr(&dev_path.join("idProduct"))? {
+            Some(p) => p,
+            None => continue,
+        };
+
+        if !is_valid_hex_id(&vendor_id) || !is_valid_hex_id(&product_id) {
+            continue;
+        }
+
+        let read_optional = |attr: &str| -> Result<Option<String>, Error> {
+            Ok(read_sysfs_attr(&dev_path.join(attr))?.filter(|s| !s.is_empty()))
+        };
+
+        devices.push(UsbDeviceInfo {
+            vendor_id,
+            product_id,
+            manufacturer: read_optional("manufacturer")?,
+            product: read_optional("product")?,
+            serial: read_optional("serial")?,
+            speed: read_optional("speed")?,
+            busnum: read_optional("busnum")?,
+            devnum: read_optional("devnum")?,
+        });
+    }
+
+    devices.sort_by(|a, b| {
+        let bus_a = a.busnum.as_deref().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+        let bus_b = b.busnum.as_deref().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+        let dev_a = a.devnum.as_deref().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+        let dev_b = b.devnum.as_deref().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+        (bus_a, dev_a).cmp(&(bus_b, dev_b))
+    });
+
+    Ok(devices)
+}
+
+/// Format USB speed value into a human-readable string.
+fn format_speed(speed: &str) -> String {
+    match speed {
+        "1.5" => "1.5 Mbps (Low Speed)".to_string(),
+        "12" => "12 Mbps (Full Speed)".to_string(),
+        "480" => "480 Mbps (High Speed)".to_string(),
+        "5000" => "5000 Mbps (Super Speed)".to_string(),
+        "10000" => "10000 Mbps (Super Speed+)".to_string(),
+        "20000" => "20000 Mbps (Super Speed+ 2x2)".to_string(),
+        other => format!("{other} Mbps"),
+    }
+}
+
+/// Generate a ready-to-paste TOML `[whitelist]` block from connected devices.
+pub fn generate_whitelist_toml(devices: &[UsbDeviceInfo]) -> String {
+    let mut counts: HashMap<(String, String), (u32, Option<String>)> = HashMap::new();
+    for dev in devices {
+        let key = (dev.vendor_id.clone(), dev.product_id.clone());
+        let entry = counts.entry(key).or_insert((0, dev.product.clone()));
+        entry.0 += 1;
+    }
+
+    let mut sorted: Vec<_> = counts.into_iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut out = String::from("[whitelist]\ndevices = [\n");
+    for ((vid, pid), (count, product)) in &sorted {
+        let name = product.as_deref().unwrap_or("Unknown device");
+        out.push_str(&format!(
+            "    {{ vendor_id = \"{vid}\", product_id = \"{pid}\", count = {count} }},  # {name}\n"
+        ));
+    }
+    out.push_str("]\n");
+    out
+}
+
+/// Print a formatted list of USB devices to stdout.
+///
+/// After the per-device listing, prints a summary of vendor:product counts
+/// so users can directly use these values for whitelist configuration.
+/// If `whitelist` is provided, each summary line is annotated with whitelist status.
+pub fn print_device_list(devices: &[UsbDeviceInfo], whitelist: Option<&HashMap<(String, String), u32>>) {
+    println!(
+        "Connected USB devices ({} found):",
+        devices.len()
+    );
+
+    for dev in devices {
+        let bus = dev.busnum.as_deref().unwrap_or("?");
+        let devn = dev.devnum.as_deref().unwrap_or("?");
+        let product_name = dev.product.as_deref().unwrap_or("Unknown device");
+
+        println!();
+        println!(
+            "Bus {:>3} Device {:>3}: ID {}:{} {}",
+            bus, devn, dev.vendor_id, dev.product_id, product_name
+        );
+
+        if let Some(ref mfr) = dev.manufacturer {
+            println!("  Manufacturer: {mfr}");
+        }
+        if let Some(ref serial) = dev.serial {
+            println!("  Serial:       {serial}");
+        }
+        if let Some(ref speed) = dev.speed {
+            println!("  Speed:        {}", format_speed(speed));
+        }
+    }
+
+    // Build ID → count map, preserving first-seen product name for display
+    let mut counts: HashMap<(String, String), (u32, Option<String>)> = HashMap::new();
+    for dev in devices {
+        let key = (dev.vendor_id.clone(), dev.product_id.clone());
+        let entry = counts.entry(key).or_insert((0, dev.product.clone()));
+        entry.0 += 1;
+    }
+
+    let mut summary: Vec<_> = counts.into_iter().collect();
+    summary.sort_by(|a, b| a.0.cmp(&b.0));
+
+    println!();
+    println!("Device ID summary (for whitelist configuration):");
+    for ((vid, pid), (count, product)) in &summary {
+        let name = product.as_deref().unwrap_or("Unknown device");
+        let annotation = match whitelist {
+            Some(wl) => {
+                if wl.contains_key(&(vid.clone(), pid.clone())) {
+                    " [whitelisted]"
+                } else {
+                    " [NOT whitelisted]"
+                }
+            }
+            None => "",
+        };
+        println!("  {vid}:{pid}  count: {count:<3} ({name}){annotation}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,5 +597,65 @@ mod tests {
     fn test_enumerate_nonexistent_dir() {
         let result = enumerate_devices_from(Path::new("/nonexistent/sysfs/path"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_enumerate_detailed_full_attributes() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+
+        let dev = dir.path().join("1-1");
+        fs::create_dir(&dev).unwrap();
+        for (name, val) in [
+            ("idVendor", "1d6b"),
+            ("idProduct", "0002"),
+            ("manufacturer", "Linux Foundation"),
+            ("product", "xHCI Host Controller"),
+            ("serial", "0000:00:0d.0"),
+            ("speed", "480"),
+            ("busnum", "1"),
+            ("devnum", "1"),
+        ] {
+            let mut f = fs::File::create(dev.join(name)).unwrap();
+            writeln!(f, "{val}").unwrap();
+        }
+
+        let devices = enumerate_devices_detailed_from(dir.path()).unwrap();
+        assert_eq!(devices.len(), 1);
+        let d = &devices[0];
+        assert_eq!(d.vendor_id, "1d6b");
+        assert_eq!(d.product_id, "0002");
+        assert_eq!(d.manufacturer.as_deref(), Some("Linux Foundation"));
+        assert_eq!(d.product.as_deref(), Some("xHCI Host Controller"));
+        assert_eq!(d.serial.as_deref(), Some("0000:00:0d.0"));
+        assert_eq!(d.speed.as_deref(), Some("480"));
+        assert_eq!(d.busnum.as_deref(), Some("1"));
+        assert_eq!(d.devnum.as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn test_enumerate_detailed_minimal_and_whitespace() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+
+        let dev = dir.path().join("3-4");
+        fs::create_dir(&dev).unwrap();
+        for (name, val) in [
+            ("idVendor", "8087"),
+            ("idProduct", "0033"),
+            ("manufacturer", "   \n"),  // whitespace-only → None
+        ] {
+            let mut f = fs::File::create(dev.join(name)).unwrap();
+            write!(f, "{val}").unwrap();
+        }
+
+        let devices = enumerate_devices_detailed_from(dir.path()).unwrap();
+        assert_eq!(devices.len(), 1);
+        let d = &devices[0];
+        assert_eq!(d.vendor_id, "8087");
+        assert_eq!(d.product_id, "0033");
+        assert_eq!(d.manufacturer, None); // whitespace-only filtered
+        assert_eq!(d.product, None);
+        assert_eq!(d.serial, None);
     }
 }

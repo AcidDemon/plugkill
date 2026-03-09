@@ -81,6 +81,26 @@ fn test_invalid_config_path() {
 }
 
 #[test]
+fn test_list_devices_no_root() {
+    Command::cargo_bin("usbkill")
+        .unwrap()
+        .arg("--list-devices")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("USB devices"));
+}
+
+#[test]
+fn test_generate_whitelist_no_root() {
+    Command::cargo_bin("usbkill")
+        .unwrap()
+        .arg("--generate-whitelist")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("[whitelist]"));
+}
+
+#[test]
 fn test_malformed_config() {
     if !nix::unistd::geteuid().is_root() {
         return;

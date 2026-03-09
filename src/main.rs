@@ -28,6 +28,14 @@ struct Cli {
     /// Print the default configuration and exit
     #[arg(long)]
     default_config: bool,
+
+    /// List connected USB devices with details and exit
+    #[arg(long)]
+    list_devices: bool,
+
+    /// Output a ready-to-paste TOML whitelist from connected devices and exit
+    #[arg(long)]
+    generate_whitelist: bool,
 }
 
 fn main() {
@@ -41,6 +49,44 @@ fn main() {
     // Handle --default-config
     if cli.default_config {
         print!("{}", config::default_config_toml());
+        return;
+    }
+
+    // Handle --generate-whitelist (no root needed)
+    if cli.generate_whitelist {
+        match usb::enumerate_devices_detailed() {
+            Ok(devices) => print!("{}", usb::generate_whitelist_toml(&devices)),
+            Err(e) => {
+                error!("failed to enumerate USB devices: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
+    // Handle --list-devices (no root needed)
+    if cli.list_devices {
+        match usb::enumerate_devices_detailed() {
+            Ok(devices) => {
+                let whitelist_map = if cli.config.exists() {
+                    config::load_whitelist_only(&cli.config).ok().map(|wl| {
+                        let mut map: HashMap<(String, String), u32> = HashMap::new();
+                        for entry in &wl.devices {
+                            *map.entry((entry.vendor_id.clone(), entry.product_id.clone()))
+                                .or_insert(0) += entry.count;
+                        }
+                        map
+                    })
+                } else {
+                    None
+                };
+                usb::print_device_list(&devices, whitelist_map.as_ref());
+            }
+            Err(e) => {
+                error!("failed to enumerate USB devices: {e}");
+                std::process::exit(1);
+            }
+        }
         return;
     }
 

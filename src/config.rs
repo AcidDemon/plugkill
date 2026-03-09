@@ -276,6 +276,36 @@ fn load_from_path(path: &Path) -> Result<Config, Error> {
     Ok(config)
 }
 
+/// Load only the whitelist section from a config file, without permission checks.
+/// Returns a default (empty) whitelist if the file does not exist.
+pub fn load_whitelist_only(path: &Path) -> Result<WhitelistConfig, Error> {
+    let contents = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(WhitelistConfig::default()),
+        Err(e) => {
+            return Err(Error::Config(format!(
+                "failed to read config file {}: {e}",
+                path.display()
+            )));
+        }
+    };
+
+    #[derive(Deserialize)]
+    struct Partial {
+        #[serde(default)]
+        whitelist: WhitelistConfig,
+    }
+
+    let partial: Partial = toml::from_str(&contents).map_err(|e| {
+        Error::Config(format!(
+            "failed to parse config file {}: {e}",
+            path.display()
+        ))
+    })?;
+
+    Ok(partial.whitelist)
+}
+
 /// Returns a commented default configuration file.
 pub fn default_config_toml() -> &'static str {
     r#"# usbkill configuration
