@@ -115,7 +115,10 @@ fn main() {
         }
         if let Ok(tb_devices) = thunderbolt::enumerate_thunderbolt_devices_detailed() {
             if !tb_devices.is_empty() {
-                print!("{}", thunderbolt::generate_thunderbolt_whitelist_toml(&tb_devices));
+                print!(
+                    "{}",
+                    thunderbolt::generate_thunderbolt_whitelist_toml(&tb_devices)
+                );
             }
         }
         if let Ok(sd_devices) = sdcard::enumerate_sdcard_devices_detailed() {
@@ -279,10 +282,7 @@ fn main() {
     // Set up signal handling for clean exit
     let running = Arc::new(AtomicBool::new(true));
 
-    for &sig in &[
-        signal_hook::consts::SIGINT,
-        signal_hook::consts::SIGTERM,
-    ] {
+    for &sig in &[signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
         let r = running.clone();
         if let Err(e) = signal_hook::flag::register_conditional_default(sig, r) {
             error!("failed to register signal handler for {sig}: {e}");
@@ -447,10 +447,7 @@ fn main() {
         }
 
         // Detect violations while holding read locks, collect description if any
-        let violation = detect_violations(
-            &config_arc,
-            &baselines,
-        );
+        let violation = detect_violations(&config_arc, &baselines);
 
         // Process violation outside of read locks
         if let Some(description) = violation {
@@ -497,9 +494,7 @@ fn detect_violations(
                     }
                 }
                 Err(e) => {
-                    return Some(format!(
-                        "USB enumeration failure (possible tampering): {e}"
-                    ));
+                    return Some(format!("USB enumeration failure (possible tampering): {e}"));
                 }
             }
         }

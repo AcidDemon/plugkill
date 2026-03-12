@@ -282,9 +282,8 @@ fn validate(config: &mut Config) -> Result<(), Error> {
 /// Verify the config file is owned by root and not writable by group/others.
 fn check_file_permissions(path: &Path) -> Result<(), Error> {
     use std::os::unix::fs::MetadataExt;
-    let meta = std::fs::metadata(path).map_err(|e| {
-        Error::Config(format!("cannot stat config file {}: {e}", path.display()))
-    })?;
+    let meta = std::fs::metadata(path)
+        .map_err(|e| Error::Config(format!("cannot stat config file {}: {e}", path.display())))?;
     if meta.uid() != 0 {
         return Err(Error::Config(format!(
             "config file {} must be owned by root (uid 0), owned by uid {}",
@@ -323,7 +322,10 @@ fn load_for_test(path: &Path) -> Result<Config, Error> {
 
 fn load_from_path(path: &Path) -> Result<Config, Error> {
     let contents = std::fs::read_to_string(path).map_err(|e| {
-        Error::Config(format!("failed to read config file {}: {e}", path.display()))
+        Error::Config(format!(
+            "failed to read config file {}: {e}",
+            path.display()
+        ))
     })?;
 
     let mut config: Config = toml::from_str(&contents).map_err(|e| {

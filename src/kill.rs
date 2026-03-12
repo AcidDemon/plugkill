@@ -107,11 +107,7 @@ fn log_kill_event(config: &Config, reason: &str) {
     let timestamp = chrono_free_timestamp();
     let entry = format!("\n{timestamp} KILL: {reason}\n");
 
-    match OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path)
-    {
+    match OpenOptions::new().create(true).append(true).open(log_path) {
         Ok(mut f) => {
             if let Err(e) = f.write_all(entry.as_bytes()) {
                 error!("failed to write log: {e}");
@@ -168,9 +164,8 @@ fn shred_file(path: &Path, dry_run: bool) -> Result<(), Error> {
     debug!("shredding file: {}", path.display());
 
     // Use symlink_metadata to detect symlinks WITHOUT following them
-    let metadata = fs::symlink_metadata(path).map_err(|e| {
-        Error::Kill(format!("cannot stat file {}: {e}", path.display()))
-    })?;
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|e| Error::Kill(format!("cannot stat file {}: {e}", path.display())))?;
 
     if metadata.file_type().is_symlink() {
         warn!(
@@ -178,9 +173,8 @@ fn shred_file(path: &Path, dry_run: bool) -> Result<(), Error> {
             path.display()
         );
         // Remove the symlink itself but don't shred the target
-        fs::remove_file(path).map_err(|e| {
-            Error::Kill(format!("cannot remove symlink {}: {e}", path.display()))
-        })?;
+        fs::remove_file(path)
+            .map_err(|e| Error::Kill(format!("cannot remove symlink {}: {e}", path.display())))?;
         return Ok(());
     }
 
@@ -199,60 +193,58 @@ fn shred_file(path: &Path, dry_run: bool) -> Result<(), Error> {
     let file_size = metadata.len() as usize;
 
     if file_size == 0 {
-        fs::remove_file(path).map_err(|e| {
-            Error::Kill(format!("cannot remove file {}: {e}", path.display()))
-        })?;
+        fs::remove_file(path)
+            .map_err(|e| Error::Kill(format!("cannot remove file {}: {e}", path.display())))?;
         return Ok(());
     }
 
     // Open /dev/urandom for random data
-    let mut urandom = File::open("/dev/urandom").map_err(|e| {
-        Error::Kill(format!("cannot open /dev/urandom: {e}"))
-    })?;
+    let mut urandom = File::open("/dev/urandom")
+        .map_err(|e| Error::Kill(format!("cannot open /dev/urandom: {e}")))?;
 
     // Open the file ONCE and reuse the fd across passes to prevent TOCTOU
-    let mut file = OpenOptions::new()
-        .write(true)
-        .open(path)
-        .map_err(|e| {
-            Error::Kill(format!("cannot open file for shredding {}: {e}", path.display()))
-        })?;
+    let mut file = OpenOptions::new().write(true).open(path).map_err(|e| {
+        Error::Kill(format!(
+            "cannot open file for shredding {}: {e}",
+            path.display()
+        ))
+    })?;
 
     let mut buf = vec![0u8; SHRED_BUF_SIZE];
 
     for pass in 0..SHRED_PASSES {
-        debug!("shred pass {}/{SHRED_PASSES} for {}", pass + 1, path.display());
+        debug!(
+            "shred pass {}/{SHRED_PASSES} for {}",
+            pass + 1,
+            path.display()
+        );
 
         // Seek back to start for each pass
         use std::io::Seek;
-        file.seek(std::io::SeekFrom::Start(0)).map_err(|e| {
-            Error::Kill(format!("seek failed for {}: {e}", path.display()))
-        })?;
+        file.seek(std::io::SeekFrom::Start(0))
+            .map_err(|e| Error::Kill(format!("seek failed for {}: {e}", path.display())))?;
 
         let mut remaining = file_size;
         while remaining > 0 {
             let chunk_size = remaining.min(SHRED_BUF_SIZE);
-            urandom.read_exact(&mut buf[..chunk_size]).map_err(|e| {
-                Error::Kill(format!("error reading /dev/urandom: {e}"))
-            })?;
-            file.write_all(&buf[..chunk_size]).map_err(|e| {
-                Error::Kill(format!("error writing to {}: {e}", path.display()))
-            })?;
+            urandom
+                .read_exact(&mut buf[..chunk_size])
+                .map_err(|e| Error::Kill(format!("error reading /dev/urandom: {e}")))?;
+            file.write_all(&buf[..chunk_size])
+                .map_err(|e| Error::Kill(format!("error writing to {}: {e}", path.display())))?;
             remaining -= chunk_size;
         }
 
-        file.sync_all().map_err(|e| {
-            Error::Kill(format!("fsync failed for {}: {e}", path.display()))
-        })?;
+        file.sync_all()
+            .map_err(|e| Error::Kill(format!("fsync failed for {}: {e}", path.display())))?;
     }
 
     // Drop the file handle before unlinking
     drop(file);
 
     // Unlink the file
-    fs::remove_file(path).map_err(|e| {
-        Error::Kill(format!("cannot remove file {}: {e}", path.display()))
-    })?;
+    fs::remove_file(path)
+        .map_err(|e| Error::Kill(format!("cannot remove file {}: {e}", path.display())))?;
 
     debug!("shredded and removed: {}", path.display());
     Ok(())
@@ -276,9 +268,8 @@ fn shred_directory(path: &Path, dry_run: bool) -> Result<(), Error> {
 
     // Walk the directory and shred all files first
     if path.is_dir() {
-        let entries = fs::read_dir(path).map_err(|e| {
-            Error::Kill(format!("cannot read directory {}: {e}", path.display()))
-        })?;
+        let entries = fs::read_dir(path)
+            .map_err(|e| Error::Kill(format!("cannot read directory {}: {e}", path.display())))?;
 
         for entry in entries {
             let entry = match entry {
@@ -301,12 +292,8 @@ fn shred_directory(path: &Path, dry_run: bool) -> Result<(), Error> {
         }
 
         // Remove the now-empty directory
-        fs::remove_dir(path).map_err(|e| {
-            Error::Kill(format!(
-                "cannot remove directory {}: {e}",
-                path.display()
-            ))
-        })?;
+        fs::remove_dir(path)
+            .map_err(|e| Error::Kill(format!("cannot remove directory {}: {e}", path.display())))?;
     }
 
     Ok(())
@@ -339,7 +326,10 @@ fn execute_command(argv: &[String], dry_run: bool) -> Result<(), Error> {
         }
         Ok(None) => {
             // Timeout — kill the child process
-            warn!("command {:?} timed out after {COMMAND_TIMEOUT:?}, killing", argv[0]);
+            warn!(
+                "command {:?} timed out after {COMMAND_TIMEOUT:?}, killing",
+                argv[0]
+            );
             let _ = child.kill();
             let _ = child.wait();
             Ok(())

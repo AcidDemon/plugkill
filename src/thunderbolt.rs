@@ -46,7 +46,9 @@ pub enum ThunderboltChange {
 impl fmt::Display for ThunderboltChange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ThunderboltChange::Added(id) => write!(f, "unauthorized thunderbolt device added: {id}"),
+            ThunderboltChange::Added(id) => {
+                write!(f, "unauthorized thunderbolt device added: {id}")
+            }
             ThunderboltChange::Removed(id) => write!(f, "thunderbolt device removed: {id}"),
         }
     }
@@ -205,10 +207,9 @@ pub fn enumerate_thunderbolt_devices_detailed_from(
             _ => continue,
         };
 
-        let read_optional =
-            |attr: &str| -> Result<Option<String>, Error> {
-                Ok(read_sysfs_attr(&dev_path.join(attr))?.filter(|s| !s.is_empty()))
-            };
+        let read_optional = |attr: &str| -> Result<Option<String>, Error> {
+            Ok(read_sysfs_attr(&dev_path.join(attr))?.filter(|s| !s.is_empty()))
+        };
 
         let vendor_id = read_optional("vendor")?.unwrap_or_default();
         let device_id = read_optional("device")?.unwrap_or_default();
@@ -235,10 +236,7 @@ pub fn print_thunderbolt_device_list(
     whitelist: Option<&HashMap<String, ()>>,
 ) {
     println!();
-    println!(
-        "Connected Thunderbolt devices ({} found):",
-        devices.len()
-    );
+    println!("Connected Thunderbolt devices ({} found):", devices.len());
 
     for dev in devices {
         let device_name = dev.device_name.as_deref().unwrap_or("Unknown device");
@@ -338,7 +336,9 @@ mod tests {
         let whitelist = ThunderboltSnapshot::new();
 
         let change = current.detect_changes(&baseline, &whitelist);
-        assert!(matches!(change, Some(ThunderboltChange::Added(ref d)) if d.unique_id == "uuid-new"));
+        assert!(
+            matches!(change, Some(ThunderboltChange::Added(ref d)) if d.unique_id == "uuid-new")
+        );
     }
 
     #[test]
@@ -348,7 +348,9 @@ mod tests {
         let whitelist = ThunderboltSnapshot::new();
 
         let change = current.detect_changes(&baseline, &whitelist);
-        assert!(matches!(change, Some(ThunderboltChange::Removed(ref d)) if d.unique_id == "uuid-bbb"));
+        assert!(
+            matches!(change, Some(ThunderboltChange::Removed(ref d)) if d.unique_id == "uuid-bbb")
+        );
     }
 
     #[test]

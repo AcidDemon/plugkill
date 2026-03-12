@@ -151,9 +151,8 @@ fn handle_connection(
             Err(e) => Response::err(format!("invalid request: {e}")),
         };
 
-        let mut resp_json = serde_json::to_string(&response).unwrap_or_else(|_| {
-            r#"{"ok":false,"error":"serialization error"}"#.to_string()
-        });
+        let mut resp_json = serde_json::to_string(&response)
+            .unwrap_or_else(|_| r#"{"ok":false,"error":"serialization error"}"#.to_string());
         resp_json.push('\n');
         writer.write_all(resp_json.as_bytes())?;
         writer.flush()?;
@@ -317,10 +316,7 @@ pub fn send_command(socket_path: &Path, request: &serde_json::Value) -> Result<(
         Some(Ok(line)) => {
             // Pretty-print the response
             if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&value).unwrap_or(line)
-                );
+                println!("{}", serde_json::to_string_pretty(&value).unwrap_or(line));
             } else {
                 println!("{line}");
             }

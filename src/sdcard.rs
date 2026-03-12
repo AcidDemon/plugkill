@@ -207,10 +207,9 @@ pub fn enumerate_sdcard_devices_detailed_from(
             _ => continue,
         };
 
-        let read_optional =
-            |attr: &str| -> Result<Option<String>, Error> {
-                Ok(read_sysfs_attr(&dev_path.join(attr))?.filter(|s| !s.is_empty()))
-            };
+        let read_optional = |attr: &str| -> Result<Option<String>, Error> {
+            Ok(read_sysfs_attr(&dev_path.join(attr))?.filter(|s| !s.is_empty()))
+        };
 
         devices.push(SdCardDeviceInfo {
             serial,
@@ -236,20 +235,14 @@ pub fn print_sdcard_device_list(
     whitelist: Option<&HashMap<String, ()>>,
 ) {
     println!();
-    println!(
-        "Connected SD/MMC cards ({} found):",
-        devices.len()
-    );
+    println!("Connected SD/MMC cards ({} found):", devices.len());
 
     for dev in devices {
         let card_name = dev.name.as_deref().unwrap_or("Unknown card");
         let card_type = dev.card_type.as_deref().unwrap_or("?");
 
         println!();
-        println!(
-            "  {card_name} ({card_type}) serial: {}",
-            dev.serial
-        );
+        println!("  {card_name} ({card_type}) serial: {}", dev.serial);
 
         if let Some(ref cid) = dev.cid {
             println!("    CID:    {cid}");
@@ -281,7 +274,10 @@ pub fn print_sdcard_device_list(
             }
             None => "",
         };
-        println!("  serial: {}  ({name}, {card_type}){annotation}", dev.serial);
+        println!(
+            "  serial: {}  ({name}, {card_type}){annotation}",
+            dev.serial
+        );
     }
 }
 

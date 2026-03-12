@@ -178,13 +178,11 @@ pub(crate) fn read_sysfs_attr(path: &Path) -> Result<Option<String>, Error> {
     match fs::read_to_string(path) {
         Ok(contents) => Ok(Some(contents.trim().to_string())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-            Err(Error::Usb(format!(
-                "permission denied reading {}: {}",
-                path.display(),
-                e
-            )))
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => Err(Error::Usb(format!(
+            "permission denied reading {}: {}",
+            path.display(),
+            e
+        ))),
         Err(e) => {
             warn!("unexpected error reading {}: {}", path.display(), e);
             Ok(None)
@@ -316,10 +314,26 @@ pub fn enumerate_devices_detailed_from(sysfs_root: &Path) -> Result<Vec<UsbDevic
     }
 
     devices.sort_by(|a, b| {
-        let bus_a = a.busnum.as_deref().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-        let bus_b = b.busnum.as_deref().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-        let dev_a = a.devnum.as_deref().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-        let dev_b = b.devnum.as_deref().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+        let bus_a = a
+            .busnum
+            .as_deref()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+        let bus_b = b
+            .busnum
+            .as_deref()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+        let dev_a = a
+            .devnum
+            .as_deref()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+        let dev_b = b
+            .devnum
+            .as_deref()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
         (bus_a, dev_a).cmp(&(bus_b, dev_b))
     });
 
@@ -367,11 +381,11 @@ pub fn generate_whitelist_toml(devices: &[UsbDeviceInfo]) -> String {
 /// After the per-device listing, prints a summary of vendor:product counts
 /// so users can directly use these values for whitelist configuration.
 /// If `whitelist` is provided, each summary line is annotated with whitelist status.
-pub fn print_device_list(devices: &[UsbDeviceInfo], whitelist: Option<&HashMap<(String, String), u32>>) {
-    println!(
-        "Connected USB devices ({} found):",
-        devices.len()
-    );
+pub fn print_device_list(
+    devices: &[UsbDeviceInfo],
+    whitelist: Option<&HashMap<(String, String), u32>>,
+) {
+    println!("Connected USB devices ({} found):", devices.len());
 
     for dev in devices {
         let bus = dev.busnum.as_deref().unwrap_or("?");
@@ -643,7 +657,7 @@ mod tests {
         for (name, val) in [
             ("idVendor", "8087"),
             ("idProduct", "0033"),
-            ("manufacturer", "   \n"),  // whitespace-only → None
+            ("manufacturer", "   \n"), // whitespace-only → None
         ] {
             let mut f = fs::File::create(dev.join(name)).unwrap();
             write!(f, "{val}").unwrap();

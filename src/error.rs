@@ -39,8 +39,12 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Error::Io(err) => Some(err),
-            Error::Config(_) | Error::Usb(_) | Error::Thunderbolt(_) | Error::SdCard(_)
-            | Error::Kill(_) | Error::Socket(_) => None,
+            Error::Config(_)
+            | Error::Usb(_)
+            | Error::Thunderbolt(_)
+            | Error::SdCard(_)
+            | Error::Kill(_)
+            | Error::Socket(_) => None,
         }
     }
 }
