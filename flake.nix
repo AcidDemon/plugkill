@@ -1,5 +1,5 @@
 {
-  description = "usbkill - USB kill-switch daemon that shuts down the system on USB device changes";
+  description = "plugkill - hardware kill-switch daemon that shuts down the system on device changes (USB, Thunderbolt, SD card)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -24,7 +24,7 @@
         in
         {
           packages.default = pkgs.rustPlatform.buildRustPackage {
-            pname = "usbkill";
+            pname = "plugkill";
             version = "0.1.0";
 
             src = pkgs.lib.cleanSource ./.;
@@ -32,13 +32,13 @@
             cargoHash = pkgs.lib.fakeHash;
 
             meta = {
-              description = "USB kill-switch daemon -- shuts down the system when USB devices change";
+              description = "Hardware kill-switch daemon -- shuts down the system when device changes are detected";
               license = pkgs.lib.licenses.gpl3Plus;
               platforms = [
                 "x86_64-linux"
                 "aarch64-linux"
               ];
-              mainProgram = "usbkill";
+              mainProgram = "plugkill";
             };
           };
 

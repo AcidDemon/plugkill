@@ -174,7 +174,7 @@ fn is_valid_hex_id(s: &str) -> bool {
 
 /// Read a sysfs attribute file, returning trimmed contents.
 /// Returns None if the file doesn't exist (normal for interfaces/hubs).
-fn read_sysfs_attr(path: &Path) -> Result<Option<String>, Error> {
+pub(crate) fn read_sysfs_attr(path: &Path) -> Result<Option<String>, Error> {
     match fs::read_to_string(path) {
         Ok(contents) => Ok(Some(contents.trim().to_string())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),

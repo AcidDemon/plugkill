@@ -15,6 +15,10 @@ pub struct Config {
     pub destruction: DestructionConfig,
     #[serde(default)]
     pub commands: CommandsConfig,
+    #[serde(default)]
+    pub thunderbolt_whitelist: ThunderboltWhitelistConfig,
+    #[serde(default)]
+    pub sdcard_whitelist: SdCardWhitelistConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -26,6 +30,12 @@ pub struct GeneralConfig {
     pub log_file: PathBuf,
     #[serde(default)]
     pub dry_run: bool,
+    #[serde(default = "default_true")]
+    pub watch_usb: bool,
+    #[serde(default = "default_true")]
+    pub watch_thunderbolt: bool,
+    #[serde(default = "default_true")]
+    pub watch_sdcard: bool,
 }
 
 impl Default for GeneralConfig {
@@ -34,6 +44,9 @@ impl Default for GeneralConfig {
             sleep_ms: default_sleep_ms(),
             log_file: default_log_file(),
             dry_run: false,
+            watch_usb: true,
+            watch_thunderbolt: true,
+            watch_sdcard: true,
         }
     }
 }
@@ -43,7 +56,7 @@ fn default_sleep_ms() -> u64 {
 }
 
 fn default_log_file() -> PathBuf {
-    PathBuf::from("/var/log/usbkill/usbkill.log")
+    PathBuf::from("/var/log/plugkill/plugkill.log")
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -104,6 +117,32 @@ fn default_true() -> bool {
 pub struct CommandsConfig {
     #[serde(default)]
     pub kill_commands: Vec<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct ThunderboltWhitelistConfig {
+    #[serde(default)]
+    pub devices: Vec<ThunderboltWhitelistEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ThunderboltWhitelistEntry {
+    pub unique_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct SdCardWhitelistConfig {
+    #[serde(default)]
+    pub devices: Vec<SdCardWhitelistEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SdCardWhitelistEntry {
+    pub serial: String,
 }
 
 // --- Validation ---
@@ -201,6 +240,24 @@ fn validate(config: &mut Config) -> Result<(), Error> {
         ));
     }
 
+    // Validate thunderbolt whitelist entries
+    for (i, entry) in config.thunderbolt_whitelist.devices.iter().enumerate() {
+        if entry.unique_id.is_empty() {
+            return Err(Error::Config(format!(
+                "thunderbolt_whitelist.devices[{i}].unique_id: must not be empty"
+            )));
+        }
+    }
+
+    // Validate sdcard whitelist entries
+    for (i, entry) in config.sdcard_whitelist.devices.iter().enumerate() {
+        if entry.serial.is_empty() {
+            return Err(Error::Config(format!(
+                "sdcard_whitelist.devices[{i}].serial: must not be empty"
+            )));
+        }
+    }
+
     // Validate kill commands — binaries must be absolute paths to prevent
     // arbitrary command execution via PATH resolution (e.g. "sh -c ...")
     for (i, cmd) in config.commands.kill_commands.iter().enumerate() {
@@ -253,6 +310,11 @@ pub fn load(path: &Path) -> Result<Config, Error> {
     load_from_path(path)
 }
 
+/// Reload configuration (re-checks permissions). Alias for `load` for clarity.
+pub fn reload(path: &Path) -> Result<Config, Error> {
+    load(path)
+}
+
 /// Load config without permission checks (for testing only).
 #[cfg(test)]
 fn load_for_test(path: &Path) -> Result<Config, Error> {
@@ -276,12 +338,25 @@ fn load_from_path(path: &Path) -> Result<Config, Error> {
     Ok(config)
 }
 
-/// Load only the whitelist section from a config file, without permission checks.
-/// Returns a default (empty) whitelist if the file does not exist.
-pub fn load_whitelist_only(path: &Path) -> Result<WhitelistConfig, Error> {
+/// Whitelists loaded from a config file (USB, Thunderbolt, and SD card).
+pub struct LoadedWhitelists {
+    pub usb: WhitelistConfig,
+    pub thunderbolt: ThunderboltWhitelistConfig,
+    pub sdcard: SdCardWhitelistConfig,
+}
+
+/// Load only the whitelist sections from a config file, without permission checks.
+/// Returns default (empty) whitelists if the file does not exist.
+pub fn load_whitelist_only(path: &Path) -> Result<LoadedWhitelists, Error> {
     let contents = match std::fs::read_to_string(path) {
         Ok(c) => c,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(WhitelistConfig::default()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(LoadedWhitelists {
+                usb: WhitelistConfig::default(),
+                thunderbolt: ThunderboltWhitelistConfig::default(),
+                sdcard: SdCardWhitelistConfig::default(),
+            });
+        }
         Err(e) => {
             return Err(Error::Config(format!(
                 "failed to read config file {}: {e}",
@@ -294,6 +369,10 @@ pub fn load_whitelist_only(path: &Path) -> Result<WhitelistConfig, Error> {
     struct Partial {
         #[serde(default)]
         whitelist: WhitelistConfig,
+        #[serde(default)]
+        thunderbolt_whitelist: ThunderboltWhitelistConfig,
+        #[serde(default)]
+        sdcard_whitelist: SdCardWhitelistConfig,
     }
 
     let partial: Partial = toml::from_str(&contents).map_err(|e| {
@@ -303,18 +382,26 @@ pub fn load_whitelist_only(path: &Path) -> Result<WhitelistConfig, Error> {
         ))
     })?;
 
-    Ok(partial.whitelist)
+    Ok(LoadedWhitelists {
+        usb: partial.whitelist,
+        thunderbolt: partial.thunderbolt_whitelist,
+        sdcard: partial.sdcard_whitelist,
+    })
 }
 
 /// Returns a commented default configuration file.
 pub fn default_config_toml() -> &'static str {
-    r#"# usbkill configuration
+    r#"# plugkill configuration
 
 [general]
 # Polling interval in milliseconds (50-10000)
 sleep_ms = 250
 # Log file path
-log_file = "/var/log/usbkill/usbkill.log"
+log_file = "/var/log/plugkill/plugkill.log"
+# Which buses to monitor (all enabled by default)
+watch_usb = true
+watch_thunderbolt = true
+watch_sdcard = true
 
 [whitelist]
 # Whitelisted USB devices. Each entry has vendor_id, product_id, and optional count.
@@ -328,13 +415,29 @@ devices = []
 files_to_remove = []
 # Folders to securely delete on kill
 folders_to_remove = []
-# Remove usbkill binary and config after kill
+# Remove plugkill binary and config after kill
 melt_self = false
 # Sync filesystems before shutdown
 do_sync = true
 # Wipe swap partition
 do_wipe_swap = false
 # swap_device = "/dev/sda2"
+
+[thunderbolt_whitelist]
+# Whitelisted Thunderbolt/USB4 devices by unique_id (UUID).
+# Triggers kill on any new physical connection before DMA/authorization.
+# devices = [
+#   { unique_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" },
+# ]
+devices = []
+
+[sdcard_whitelist]
+# Whitelisted SD/MMC cards by serial number.
+# Monitors SD, MMC, and SDIO devices. Triggers kill on insertion or removal.
+# devices = [
+#   { serial = "0x12345678" },
+# ]
+devices = []
 
 [commands]
 # Commands to execute during kill sequence (each is an argv array)
@@ -558,5 +661,125 @@ kill_commands = [
         assert!(config.destruction.melt_self);
         assert!(!config.destruction.do_sync);
         assert_eq!(config.commands.kill_commands.len(), 2);
+    }
+
+    #[test]
+    fn test_thunderbolt_whitelist_valid() {
+        let f = write_config(
+            r#"
+[thunderbolt_whitelist]
+devices = [
+    { unique_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" },
+]
+"#,
+        );
+        let config = load_for_test(f.path()).unwrap();
+        assert_eq!(config.thunderbolt_whitelist.devices.len(), 1);
+        assert_eq!(
+            config.thunderbolt_whitelist.devices[0].unique_id,
+            "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        );
+    }
+
+    #[test]
+    fn test_thunderbolt_whitelist_empty_id_rejected() {
+        let f = write_config(
+            r#"
+[thunderbolt_whitelist]
+devices = [{ unique_id = "" }]
+"#,
+        );
+        let err = load_for_test(f.path()).unwrap_err();
+        assert!(err.to_string().contains("must not be empty"));
+    }
+
+    #[test]
+    fn test_thunderbolt_whitelist_default_empty() {
+        let f = write_config("");
+        let config = load_for_test(f.path()).unwrap();
+        assert!(config.thunderbolt_whitelist.devices.is_empty());
+    }
+
+    #[test]
+    fn test_sdcard_whitelist_valid() {
+        let f = write_config(
+            r#"
+[sdcard_whitelist]
+devices = [
+    { serial = "0x12345678" },
+]
+"#,
+        );
+        let config = load_for_test(f.path()).unwrap();
+        assert_eq!(config.sdcard_whitelist.devices.len(), 1);
+        assert_eq!(config.sdcard_whitelist.devices[0].serial, "0x12345678");
+    }
+
+    #[test]
+    fn test_sdcard_whitelist_empty_serial_rejected() {
+        let f = write_config(
+            r#"
+[sdcard_whitelist]
+devices = [{ serial = "" }]
+"#,
+        );
+        let err = load_for_test(f.path()).unwrap_err();
+        assert!(err.to_string().contains("must not be empty"));
+    }
+
+    #[test]
+    fn test_sdcard_whitelist_default_empty() {
+        let f = write_config("");
+        let config = load_for_test(f.path()).unwrap();
+        assert!(config.sdcard_whitelist.devices.is_empty());
+    }
+
+    #[test]
+    fn test_watch_flags_default_true() {
+        let f = write_config("");
+        let config = load_for_test(f.path()).unwrap();
+        assert!(config.general.watch_usb);
+        assert!(config.general.watch_thunderbolt);
+        assert!(config.general.watch_sdcard);
+    }
+
+    #[test]
+    fn test_watch_flags_disabled() {
+        let f = write_config(
+            r#"
+[general]
+watch_usb = false
+watch_thunderbolt = false
+watch_sdcard = false
+"#,
+        );
+        let config = load_for_test(f.path()).unwrap();
+        assert!(!config.general.watch_usb);
+        assert!(!config.general.watch_thunderbolt);
+        assert!(!config.general.watch_sdcard);
+    }
+
+    #[test]
+    fn test_watch_flags_partial() {
+        let f = write_config(
+            r#"
+[general]
+watch_usb = true
+watch_thunderbolt = false
+"#,
+        );
+        let config = load_for_test(f.path()).unwrap();
+        assert!(config.general.watch_usb);
+        assert!(!config.general.watch_thunderbolt);
+        assert!(config.general.watch_sdcard); // default true
+    }
+
+    #[test]
+    fn test_default_config_toml_has_watch_flags() {
+        let f = write_config(default_config_toml());
+        let config = load_for_test(f.path()).unwrap();
+        assert!(config.general.watch_usb);
+        assert!(config.general.watch_thunderbolt);
+        assert!(config.general.watch_sdcard);
     }
 }

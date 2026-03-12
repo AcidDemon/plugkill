@@ -1,64 +1,214 @@
-# usbkill
+# plugkill
 
-An anti-forensic USB kill-switch daemon that monitors your USB ports and immediately shuts down the system when unauthorized device changes are detected.
+A hardware kill-switch daemon for Linux. Monitors USB, Thunderbolt, and SD card buses and shuts down the system when unauthorized device changes are detected.
 
-`usbkill` continuously polls connected USB devices and triggers a configurable kill sequence — securely shredding files, executing custom commands, wiping swap, and powering off — the moment a device is added, removed, or tampered with.
+## What it does
 
-## Origin
+plugkill continuously polls your hardware buses. The moment a device is added, removed, or tampered with, it fires a configurable kill sequence: shreds files, runs custom commands, wipes swap, and powers off. It can also run in learning mode to audit device changes without acting on them, and exposes a Unix socket for runtime control.
 
-This is a from-scratch Rust rewrite of the original [usbkill](https://github.com/hephaest0s/usbkill) by [Hephaestos](https://github.com/hephaest0s), which was written in Python.
+## Features
 
-### Why rewrite in Rust?
+- **Multi-bus monitoring** — USB, Thunderbolt/USB4, and SD/MMC/SDIO, each independently toggleable
+- **Selective bus control** — disable individual buses via config (`watch_usb = false`) or CLI (`--no-usb`)
+- **Learning mode** — log violations without triggering the kill sequence; switch at runtime via socket
+- **Runtime control socket** — disarm/arm, switch modes, reload config, query status over a Unix domain socket
+- **Config hot-reload** — change whitelists or settings without restarting the daemon
+- **Secure destruction** — multi-pass file shredding, swap wiping, binary self-destruct
+- **Hardened systemd integration** — ships with a NixOS module; includes a reference unit file for other distros
 
-- **Single static binary** — no runtime dependencies, trivial to deploy and audit
-- **Memory safety** — eliminates entire classes of vulnerabilities (buffer overflows, use-after-free) without a garbage collector
-- **Smaller attack surface** — no Python interpreter, no pip packages, fewer moving parts on a security-critical daemon
-- **Performance** — compiled native code with minimal overhead for real-time USB monitoring
-- **Systemd integration** — ships with a hardened NixOS module and can easily be adapted for other init systems
+### Monitored buses
 
-## How it works
+| Bus | Sysfs path | Whitelist key | Config section |
+|-----|-----------|---------------|----------------|
+| USB | `/sys/bus/usb/devices` | `vendor_id` + `product_id` (with count) | `[whitelist]` |
+| Thunderbolt/USB4 | `/sys/bus/thunderbolt/devices` | `unique_id` (UUID) | `[thunderbolt_whitelist]` |
+| SD/MMC/SDIO | `/sys/bus/mmc/devices` | `serial` (hex) | `[sdcard_whitelist]` |
 
-1. On startup, `usbkill` captures a **baseline snapshot** of all connected USB devices via `/sys/bus/usb/devices`
-2. Every 250ms (configurable), it polls the current device state and compares it against the baseline and an optional whitelist
-3. If **any** unauthorized change is detected — a new device plugged in, a baseline device removed, or device counts changed — the **kill sequence** fires:
-   - Signals are masked (SIGINT/SIGTERM ignored so the sequence can't be interrupted)
-   - Configured files and directories are securely shredded (3-pass random overwrite)
-   - Custom kill commands are executed (e.g. dismount encrypted volumes)
-   - Filesystems are synced
-   - Swap is wiped (optional)
-   - The binary and config self-destruct (optional)
-   - The system powers off
-4. If USB enumeration itself fails, this is treated as tampering and also triggers the kill sequence
+## Getting started
 
-## Use cases
+### 1. Build
 
-- Prevent forensic data extraction via USB devices
-- Dead man's switch: attach a USB key to your wrist — if the machine is taken, the key pulls out and the system shuts down
-- Protect against rubber ducky / BadUSB attacks
-- Prevent unauthorized USB storage access
+```bash
+git clone https://github.com/AcidDemon/plugkill.git
+cd plugkill
+cargo build --release
+sudo install -m 755 target/release/plugkill /usr/local/bin/
+```
+
+Or on NixOS, add the flake input and enable the module (see [NixOS section](#nixos-flake) below).
+
+### 2. Discover your devices
+
+Run these as any user — no root required:
+
+```bash
+plugkill --list-devices          # show all USB, Thunderbolt, and SD devices with details
+plugkill --generate-whitelist    # generate whitelist TOML you can paste into your config
+```
+
+### 3. Create a config
+
+```bash
+sudo mkdir -p /etc/plugkill /var/log/plugkill /run/plugkill
+plugkill --default-config | sudo tee /etc/plugkill/config.toml > /dev/null
+sudo chmod 600 /etc/plugkill/config.toml
+```
+
+Edit `/etc/plugkill/config.toml` and paste in the whitelist output from step 2. Review the `[destruction]` and `[commands]` sections.
+
+### 4. Test with dry-run
+
+```bash
+sudo plugkill --dry-run
+```
+
+This logs what would happen on a violation without actually shredding anything or shutting down. Plug or unplug a device to see it trigger.
+
+### 5. Test with learning mode
+
+```bash
+sudo plugkill --learn-mode
+```
+
+Like dry-run but for the violation logic only: the daemon runs normally, logs every violation it would have acted on, but never fires the kill sequence. Useful for validating your whitelist in production before switching to enforce.
+
+### 6. Run for real
+
+```bash
+sudo plugkill
+```
+
+Or via systemd (see below).
+
+## Runtime control
+
+While the daemon is running, you can control it from another terminal using the same binary:
+
+```bash
+sudo plugkill --status              # JSON status: armed, mode, uptime, device counts, etc.
+sudo plugkill --disarm 300           # disarm for 5 minutes (mandatory timeout, max 1 hour)
+sudo plugkill --arm                  # re-arm immediately; re-captures baselines
+sudo plugkill --learn                # switch to learning mode at runtime
+sudo plugkill --enforce              # switch back to enforce mode
+sudo plugkill --reload               # hot-reload config without restarting
+```
+
+These commands connect to the daemon's Unix socket at `/run/plugkill/plugkill.sock` (override with `--socket`). The protocol is line-delimited JSON, so you can also script it directly:
+
+```bash
+echo '{"command":"status"}' | sudo socat - UNIX-CONNECT:/run/plugkill/plugkill.sock
+```
+
+### Disarm / arm behavior
+
+- **Disarm requires a timeout** — there is no indefinite disarm. Maximum is 3600 seconds (1 hour).
+- **On re-arm** (timeout expiry or manual `--arm`), baselines are re-captured from whatever devices are currently connected.
+
+## Configuration
+
+Generate the default with `plugkill --default-config`. The file is TOML:
+
+```toml
+[general]
+sleep_ms = 250                                    # polling interval in ms (50-10000)
+log_file = "/var/log/plugkill/plugkill.log"       # kill event log
+watch_usb = true                                  # monitor USB bus
+watch_thunderbolt = true                          # monitor Thunderbolt bus
+watch_sdcard = true                               # monitor SD/MMC bus
+
+[whitelist]
+devices = [
+  { vendor_id = "1d6b", product_id = "0002", count = 3 },
+]
+
+[thunderbolt_whitelist]
+devices = [
+  # { unique_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" },
+]
+
+[sdcard_whitelist]
+devices = [
+  # { serial = "0x12345678" },
+]
+
+[destruction]
+files_to_remove = []             # files to securely shred (3-pass random overwrite)
+folders_to_remove = []           # directories to recursively shred
+melt_self = false                # delete plugkill binary and config after kill
+do_sync = true                   # sync filesystems before shutdown
+do_wipe_swap = false             # overwrite swap partition
+# swap_device = "/dev/sda2"     # required if do_wipe_swap = true
+
+[commands]
+kill_commands = [
+  # ["/usr/bin/truecrypt", "--dismount"],
+]
+```
+
+### Security requirements
+
+- Config file **must** be owned by root (uid 0)
+- Config file **must not** be group-writable or world-writable
+- All paths must be absolute — no relative paths, no `..` traversal
+- Kill command binaries must use absolute paths
+
+## CLI reference
+
+```
+plugkill [OPTIONS]
+
+Daemon options:
+  -c, --config <PATH>       Config file path [default: /etc/plugkill/config.toml]
+      --dry-run             Log actions without executing them
+      --learn-mode          Start in learning mode (log violations, don't kill)
+      --no-usb              Disable USB monitoring
+      --no-thunderbolt      Disable Thunderbolt monitoring
+      --no-sdcard           Disable SD card monitoring
+      --socket <PATH>       Control socket path [default: /run/plugkill/plugkill.sock]
+
+Client commands (connect to running daemon):
+      --status              Query daemon status (JSON)
+      --disarm <SECONDS>    Disarm for N seconds (1-3600)
+      --arm                 Re-arm and re-capture baselines
+      --learn               Switch to learning mode
+      --enforce             Switch to enforce mode
+      --reload              Hot-reload configuration
+
+Utility (no root required):
+      --default-config      Print default configuration and exit
+      --list-devices        List connected devices with details
+      --generate-whitelist  Generate whitelist TOML from connected devices
+
+  -h, --help                Print help
+  -V, --version             Print version
+```
 
 ## Installation
 
 ### NixOS (flake)
 
-Add the flake to your inputs and enable the module:
-
 ```nix
 # flake.nix
 {
-  inputs.usbkill.url = "github:AcidDemon/usbkill-rs";
+  inputs.plugkill.url = "github:AcidDemon/plugkill";
 
-  outputs = { self, nixpkgs, usbkill, ... }: {
+  outputs = { self, nixpkgs, plugkill, ... }: {
     nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
       modules = [
-        usbkill.nixosModules.default
+        plugkill.nixosModules.default
         {
-          services.usbkill = {
+          services.plugkill = {
             enable = true;
             settings = {
               general.sleep_ms = 250;
               whitelist.devices = [
                 { vendor_id = "1d6b"; product_id = "0002"; count = 3; }
+              ];
+              thunderbolt_whitelist.devices = [
+                { unique_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"; }
+              ];
+              sdcard_whitelist.devices = [
+                { serial = "0x12345678"; }
               ];
               destruction = {
                 files_to_remove = [ "/home/user/secrets.tar.gpg" ];
@@ -73,44 +223,41 @@ Add the flake to your inputs and enable the module:
 }
 ```
 
-The NixOS module runs `usbkill` as a hardened systemd service with restrictive capabilities, filesystem protections, and network isolation out of the box.
+The NixOS module runs plugkill as a hardened systemd service with restrictive capabilities, filesystem protections, network isolation, and a `RuntimeDirectory` for the control socket.
 
 ### Cargo (any Linux distribution)
 
 ```bash
-# Build from source
-git clone https://github.com/AcidDemon/usbkill-rs.git
-cd usbkill-rs
+git clone https://github.com/AcidDemon/plugkill.git
+cd plugkill
 cargo build --release
-
-# Install the binary
-sudo install -m 755 target/release/usbkill /usr/local/bin/
-
-# Create config directory and default config
-sudo mkdir -p /etc/usbkill /var/log/usbkill
-sudo ./target/release/usbkill --default-config | sudo tee /etc/usbkill/config.toml
-sudo chmod 600 /etc/usbkill/config.toml
+sudo install -m 755 target/release/plugkill /usr/local/bin/
+sudo mkdir -p /etc/plugkill /var/log/plugkill /run/plugkill
+plugkill --default-config | sudo tee /etc/plugkill/config.toml > /dev/null
+sudo chmod 600 /etc/plugkill/config.toml
 ```
 
 ### Systemd service (non-NixOS)
 
-Create `/etc/systemd/system/usbkill.service`:
+Create `/etc/systemd/system/plugkill.service`:
 
 ```ini
 [Unit]
-Description=usbkill USB kill-switch daemon
+Description=plugkill hardware kill-switch daemon
 After=multi-user.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/usbkill --config /etc/usbkill/config.toml
+ExecStart=/usr/local/bin/plugkill --config /etc/plugkill/config.toml
 Restart=on-failure
 RestartSec=5
+RuntimeDirectory=plugkill
+RuntimeDirectoryMode=0755
 Environment=RUST_LOG=info
 
 # Hardening
 ProtectSystem=strict
-ReadWritePaths=/var/log/usbkill
+ReadWritePaths=/var/log/plugkill /run/plugkill
 PrivateTmp=true
 NoNewPrivileges=true
 ProtectKernelTunables=true
@@ -124,118 +271,42 @@ UMask=0077
 WantedBy=multi-user.target
 ```
 
-Then enable and start:
-
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now usbkill.service
+sudo systemctl enable --now plugkill.service
 ```
 
-### Arch Linux (manual)
+## Use cases
 
-```bash
-# Install Rust if not present
-sudo pacman -S rust
+- **Anti-forensic dead man's switch** — attach a USB key to your wrist; if the machine is seized, the key pulls out and the system shuts down
+- **Prevent BadUSB / rubber ducky attacks** — any unauthorized USB insertion triggers immediate shutdown
+- **Block Thunderbolt DMA attacks** — detect new physical connections before device authorization
+- **Audit hardware changes** — run in learning mode to log every device event without acting on it
+- **Production hardening** — detect unauthorized SD card or USB insertion on embedded/kiosk systems
 
-# Build and install
-git clone https://github.com/AcidDemon/usbkill-rs.git
-cd usbkill-rs
-cargo build --release
-sudo install -m 755 target/release/usbkill /usr/local/bin/
-```
+## How it works
 
-### Fedora / RHEL
+1. On startup, plugkill captures a **baseline snapshot** of all connected devices on each active bus
+2. Every 250ms (configurable), it polls the current device state and compares against the baseline + whitelists
+3. If any unauthorized change is detected:
+   - In **enforce mode**: the kill sequence fires (mask signals, shred files, run commands, sync, wipe swap, self-destruct, power off)
+   - In **learn mode**: the violation is logged and counted, but no action is taken
+4. If device enumeration itself fails, this is treated as tampering
+5. Buses that lack hardware (no Thunderbolt controller, no MMC bus) are silently skipped
 
-```bash
-sudo dnf install cargo
-git clone https://github.com/AcidDemon/usbkill-rs.git
-cd usbkill-rs
-cargo build --release
-sudo install -m 755 target/release/usbkill /usr/local/bin/
-```
+## Origin
 
-### Debian / Ubuntu
-
-```bash
-sudo apt install cargo
-git clone https://github.com/AcidDemon/usbkill-rs.git
-cd usbkill-rs
-cargo build --release
-sudo install -m 755 target/release/usbkill /usr/local/bin/
-```
-
-## Usage
-
-```
-usbkill [OPTIONS]
-
-Options:
-  -c, --config <PATH>   Path to config file [default: /etc/usbkill/config.toml]
-      --dry-run          Log actions without executing them
-      --default-config   Print default configuration and exit
-  -h, --help             Print help
-  -V, --version          Print version
-```
-
-Run directly (must be root):
-
-```bash
-sudo usbkill                          # Use default config
-sudo usbkill --config ./my-config.toml
-sudo usbkill --dry-run                # Test without executing destructive actions
-```
-
-## Configuration
-
-The configuration file uses TOML format. Generate the default with `usbkill --default-config`.
-
-```toml
-[general]
-sleep_ms = 250                                  # Polling interval in ms (50–10000)
-log_file = "/var/log/usbkill/usbkill.log"      # Kill event log
-dry_run = false
-
-[whitelist]
-devices = [
-  { vendor_id = "1d6b", product_id = "0002", count = 3 },
-  # { vendor_id = "abcd", product_id = "1234", count = 1 },
-]
-
-[destruction]
-files_to_remove = []             # Files to securely shred
-folders_to_remove = []           # Directories to recursively shred
-melt_self = false                # Delete usbkill binary and config after kill
-do_sync = true                   # Sync filesystems before shutdown
-do_wipe_swap = false             # Overwrite swap partition
-# swap_device = "/dev/sda2"     # Required if do_wipe_swap = true
-
-[commands]
-kill_commands = [
-  # ["/usr/bin/truecrypt", "--dismount"],
-  # ["/usr/bin/shred", "-vfz", "-n", "3", "/path/to/secret"],
-]
-```
-
-### Security requirements
-
-- The config file **must** be owned by root
-- The config file **must not** be world-writable or group-writable
-- All paths must be absolute (no relative paths, no `..` traversal)
-- Kill commands must use absolute paths to the executable
+A from-scratch Rust rewrite of the original [usbkill](https://github.com/hephaest0s/usbkill) by [Hephaestos](https://github.com/hephaest0s). Extended with Thunderbolt/SD card monitoring, runtime control, learning mode, and config hot-reload.
 
 ## Platform support
 
 | Platform | Architecture | Status |
 |----------|-------------|--------|
-| Linux    | x86_64      | Supported |
-| Linux    | aarch64     | Supported |
+| Linux | x86_64 | Supported |
+| Linux | aarch64 | Supported |
 
-`usbkill` is Linux-only — it reads from `/sys/bus/usb/devices` (sysfs) and uses the `reboot(2)` syscall for shutdown.
+plugkill is Linux-only. It reads from sysfs (`/sys/bus/`) and uses the `reboot(2)` syscall for shutdown.
 
 ## License
 
 GPL-3.0 — see [LICENSE](LICENSE) for details.
-
-## Acknowledgements
-
-Based on the original [usbkill](https://github.com/hephaest0s/usbkill) by [Hephaestos](https://github.com/hephaest0s).

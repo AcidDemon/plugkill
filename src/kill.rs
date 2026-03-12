@@ -390,7 +390,7 @@ fn wipe_swap(device: &str, dry_run: bool) -> Result<(), Error> {
     Ok(())
 }
 
-/// Remove the usbkill binary and config directory.
+/// Remove the plugkill binary and config directory.
 fn melt_self(dry_run: bool) {
     if dry_run {
         info!("[DRY RUN] would melt self (remove binary and config)");
@@ -407,13 +407,13 @@ fn melt_self(dry_run: bool) {
     }
 
     // Remove config directory
-    if let Err(e) = fs::remove_dir_all("/etc/usbkill") {
-        error!("cannot remove /etc/usbkill: {e}");
+    if let Err(e) = fs::remove_dir_all("/etc/plugkill") {
+        error!("cannot remove /etc/plugkill: {e}");
     }
 
     // Remove log directory
-    if let Err(e) = fs::remove_dir_all("/var/log/usbkill") {
-        error!("cannot remove /var/log/usbkill: {e}");
+    if let Err(e) = fs::remove_dir_all("/var/log/plugkill") {
+        error!("cannot remove /var/log/plugkill: {e}");
     }
 }
 

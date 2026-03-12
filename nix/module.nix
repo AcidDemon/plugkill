@@ -6,9 +6,9 @@ flake:
   ...
 }:
 let
-  cfg = config.services.usbkill;
+  cfg = config.services.plugkill;
   tomlFormat = pkgs.formats.toml { };
-  configFile = tomlFormat.generate "usbkill-config.toml" cfg.settings;
+  configFile = tomlFormat.generate "plugkill-config.toml" cfg.settings;
   defaultPackage = flake.packages.${pkgs.stdenv.hostPlatform.system}.default;
 
   # Dynamically collect paths that need write access from destruction config
@@ -19,13 +19,13 @@ let
       cfg.settings.destruction.swap_device;
 in
 {
-  options.services.usbkill = {
-    enable = lib.mkEnableOption "usbkill, a USB kill-switch daemon that shuts down the system on USB device changes";
+  options.services.plugkill = {
+    enable = lib.mkEnableOption "plugkill, a hardware kill-switch daemon that shuts down the system on device changes (USB, Thunderbolt, SD card)";
 
     package = lib.mkOption {
       type = lib.types.package;
       default = defaultPackage;
-      description = "The usbkill package to use.";
+      description = "The plugkill package to use.";
     };
 
     settings = lib.mkOption {
@@ -33,7 +33,10 @@ in
       default = {
         general = {
           sleep_ms = 250;
-          log_file = "/var/log/usbkill/usbkill.log";
+          log_file = "/var/log/plugkill/plugkill.log";
+          watch_usb = true;
+          watch_thunderbolt = true;
+          watch_sdcard = true;
         };
         whitelist = {
           devices = [ ];
@@ -45,12 +48,18 @@ in
           do_sync = true;
           do_wipe_swap = false;
         };
+        thunderbolt_whitelist = {
+          devices = [ ];
+        };
+        sdcard_whitelist = {
+          devices = [ ];
+        };
         commands = {
           kill_commands = [ ];
         };
       };
       description = ''
-        Configuration for usbkill, serialized to TOML.
+        Configuration for plugkill, serialized to TOML.
         See the project documentation for available options.
       '';
     };
@@ -59,11 +68,11 @@ in
   config = lib.mkIf cfg.enable {
     # Create log directory with restrictive permissions
     systemd.tmpfiles.rules = [
-      "d /var/log/usbkill 0750 root root -"
+      "d /var/log/plugkill 0750 root root -"
     ];
 
-    systemd.services.usbkill = {
-      description = "usbkill USB kill-switch daemon";
+    systemd.services.plugkill = {
+      description = "plugkill hardware kill-switch daemon";
       after = [ "multi-user.target" ];
       wantedBy = [ "multi-user.target" ];
 
@@ -73,7 +82,7 @@ in
         Restart = "on-failure";
         RestartSec = 5;
 
-        # Must run as root for shutdown capability, USB sysfs access, and file shredding
+        # Must run as root for shutdown capability, sysfs access, and file shredding
         User = "root";
         Group = "root";
 
@@ -98,9 +107,12 @@ in
         ProtectSystem = "strict";
         ProtectHome = false;  # tool may need to shred files anywhere
         PrivateTmp = true;
-        ReadOnlyPaths = [ "/sys/bus/usb/devices" ];
+        ReadOnlyPaths = [ "/sys/bus/usb/devices" "/sys/bus/thunderbolt/devices" "/sys/bus/mmc/devices" ];
+        RuntimeDirectory = "plugkill";
+        RuntimeDirectoryMode = "0755";
         ReadWritePaths = [
-          "/var/log/usbkill"
+          "/var/log/plugkill"
+          "/run/plugkill"
         ] ++ destructionWritePaths;
 
         # Process hardening
@@ -117,7 +129,7 @@ in
         RestrictNamespaces = true;
         RestrictRealtime = true;
 
-        # Network hardening — usbkill needs no network access
+        # Network hardening — plugkill needs no network access
         RestrictAddressFamilies = [ "AF_UNIX" ];
         IPAddressDeny = "any";
 

@@ -16,27 +16,27 @@ fn write_config(content: &str) -> (TempDir, std::path::PathBuf) {
 
 #[test]
 fn test_cli_help() {
-    Command::cargo_bin("usbkill")
+    Command::cargo_bin("plugkill")
         .unwrap()
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicates::str::contains("USB kill-switch daemon"));
+        .stdout(predicates::str::contains("Hardware kill-switch daemon"));
 }
 
 #[test]
 fn test_cli_version() {
-    Command::cargo_bin("usbkill")
+    Command::cargo_bin("plugkill")
         .unwrap()
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicates::str::contains("usbkill"));
+        .stdout(predicates::str::contains("plugkill"));
 }
 
 #[test]
 fn test_default_config_output() {
-    Command::cargo_bin("usbkill")
+    Command::cargo_bin("plugkill")
         .unwrap()
         .arg("--default-config")
         .assert()
@@ -44,8 +44,13 @@ fn test_default_config_output() {
         .stdout(predicates::str::contains("[general]"))
         .stdout(predicates::str::contains("sleep_ms"))
         .stdout(predicates::str::contains("[whitelist]"))
+        .stdout(predicates::str::contains("[thunderbolt_whitelist]"))
+        .stdout(predicates::str::contains("[sdcard_whitelist]"))
         .stdout(predicates::str::contains("[destruction]"))
-        .stdout(predicates::str::contains("[commands]"));
+        .stdout(predicates::str::contains("[commands]"))
+        .stdout(predicates::str::contains("watch_usb"))
+        .stdout(predicates::str::contains("watch_thunderbolt"))
+        .stdout(predicates::str::contains("watch_sdcard"));
 }
 
 #[test]
@@ -56,7 +61,7 @@ fn test_refuses_without_root() {
 
     let (_dir, path) = write_config("");
 
-    Command::cargo_bin("usbkill")
+    Command::cargo_bin("plugkill")
         .unwrap()
         .arg("--config")
         .arg(path)
@@ -71,7 +76,7 @@ fn test_invalid_config_path() {
         return;
     }
 
-    Command::cargo_bin("usbkill")
+    Command::cargo_bin("plugkill")
         .unwrap()
         .arg("--config")
         .arg("/nonexistent/path/config.toml")
@@ -82,7 +87,7 @@ fn test_invalid_config_path() {
 
 #[test]
 fn test_list_devices_no_root() {
-    Command::cargo_bin("usbkill")
+    Command::cargo_bin("plugkill")
         .unwrap()
         .arg("--list-devices")
         .assert()
@@ -92,7 +97,7 @@ fn test_list_devices_no_root() {
 
 #[test]
 fn test_generate_whitelist_no_root() {
-    Command::cargo_bin("usbkill")
+    Command::cargo_bin("plugkill")
         .unwrap()
         .arg("--generate-whitelist")
         .assert()
@@ -108,11 +113,100 @@ fn test_malformed_config() {
 
     let (_dir, path) = write_config("this is not valid toml [[[");
 
-    Command::cargo_bin("usbkill")
+    Command::cargo_bin("plugkill")
         .unwrap()
         .arg("--config")
         .arg(path)
         .assert()
         .failure()
         .stderr(predicates::str::contains("failed to load config"));
+}
+
+// --- New tests for selective monitoring flags ---
+
+#[test]
+fn test_help_mentions_bus_flags() {
+    Command::cargo_bin("plugkill")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("--no-usb"))
+        .stdout(predicates::str::contains("--no-thunderbolt"))
+        .stdout(predicates::str::contains("--no-sdcard"));
+}
+
+#[test]
+fn test_help_mentions_client_flags() {
+    Command::cargo_bin("plugkill")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("--disarm"))
+        .stdout(predicates::str::contains("--arm"))
+        .stdout(predicates::str::contains("--status"))
+        .stdout(predicates::str::contains("--learn"))
+        .stdout(predicates::str::contains("--enforce"))
+        .stdout(predicates::str::contains("--reload"));
+}
+
+#[test]
+fn test_help_mentions_learn_mode() {
+    Command::cargo_bin("plugkill")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("--learn-mode"));
+}
+
+#[test]
+fn test_client_status_fails_no_daemon() {
+    // When no daemon is running, --status should fail gracefully
+    Command::cargo_bin("plugkill")
+        .unwrap()
+        .arg("--status")
+        .arg("--socket")
+        .arg("/tmp/plugkill-test-nonexistent.sock")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("cannot connect"));
+}
+
+#[test]
+fn test_client_disarm_fails_no_daemon() {
+    Command::cargo_bin("plugkill")
+        .unwrap()
+        .arg("--disarm")
+        .arg("60")
+        .arg("--socket")
+        .arg("/tmp/plugkill-test-nonexistent.sock")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("cannot connect"));
+}
+
+#[test]
+fn test_client_arm_fails_no_daemon() {
+    Command::cargo_bin("plugkill")
+        .unwrap()
+        .arg("--arm")
+        .arg("--socket")
+        .arg("/tmp/plugkill-test-nonexistent.sock")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("cannot connect"));
+}
+
+#[test]
+fn test_client_reload_fails_no_daemon() {
+    Command::cargo_bin("plugkill")
+        .unwrap()
+        .arg("--reload")
+        .arg("--socket")
+        .arg("/tmp/plugkill-test-nonexistent.sock")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("cannot connect"));
 }
