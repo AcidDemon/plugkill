@@ -323,7 +323,7 @@ fn main() {
     let tb_whitelist = build_thunderbolt_whitelist(&cfg);
     if !tb_whitelist.devices().is_empty() {
         info!("Thunderbolt whitelist:");
-        for (id, _) in tb_whitelist.devices() {
+        for id in tb_whitelist.devices().keys() {
             info!("  {id}");
         }
     }
@@ -337,7 +337,7 @@ fn main() {
     let sd_whitelist = build_sdcard_whitelist(&cfg);
     if !sd_whitelist.devices().is_empty() {
         info!("SD card whitelist:");
-        for (id, _) in sd_whitelist.devices() {
+        for id in sd_whitelist.devices().keys() {
             info!("  {id}");
         }
     }
@@ -590,7 +590,7 @@ fn capture_thunderbolt_baseline(cfg: &config::Config) -> Option<ThunderboltSnaps
     match thunderbolt::enumerate_thunderbolt_devices() {
         Ok(snapshot) => {
             info!("Thunderbolt baseline: {} device(s)", snapshot.len());
-            for (id, _count) in snapshot.devices() {
+            for id in snapshot.devices().keys() {
                 info!("  {id}");
             }
             Some(snapshot)
@@ -609,7 +609,7 @@ fn capture_sdcard_baseline(cfg: &config::Config) -> Option<SdCardSnapshot> {
     match sdcard::enumerate_sdcard_devices() {
         Ok(snapshot) => {
             info!("SD card baseline: {} device(s)", snapshot.len());
-            for (id, _) in snapshot.devices() {
+            for id in snapshot.devices().keys() {
                 info!("  {id}");
             }
             Some(snapshot)
