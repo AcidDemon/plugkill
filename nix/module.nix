@@ -12,11 +12,12 @@ let
   defaultPackage = flake.packages.${pkgs.stdenv.hostPlatform.system}.default;
 
   # Dynamically collect paths that need write access from destruction config
+  destruction = cfg.settings.destruction or {};
   destructionWritePaths =
-    (cfg.settings.destruction.files_to_remove or [ ])
-    ++ (cfg.settings.destruction.folders_to_remove or [ ])
-    ++ lib.optional (cfg.settings.destruction ? swap_device && cfg.settings.destruction.swap_device != null)
-      cfg.settings.destruction.swap_device;
+    (destruction.files_to_remove or [ ])
+    ++ (destruction.folders_to_remove or [ ])
+    ++ lib.optional (destruction ? swap_device && destruction.swap_device != null)
+      destruction.swap_device;
 in
 {
   options.services.plugkill = {
