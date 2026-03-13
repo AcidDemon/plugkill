@@ -28,6 +28,18 @@ in
       description = "The plugkill package to use.";
     };
 
+    learnMode = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = "Start in learning mode (log violations without triggering kill sequence).";
+    };
+
+    dryRun = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = "Log actions without executing them.";
+    };
+
     settings = lib.mkOption {
       type = tomlFormat.type;
       default = {
@@ -78,7 +90,12 @@ in
 
       serviceConfig = {
         Type = "simple";
-        ExecStart = "${lib.getExe cfg.package} --config ${configFile}";
+        ExecStart = lib.concatStringsSep " " ([
+          "${lib.getExe cfg.package}"
+          "--config ${configFile}"
+        ]
+          ++ lib.optional cfg.learnMode "--learn-mode"
+          ++ lib.optional cfg.dryRun "--dry-run");
         Restart = "on-failure";
         RestartSec = 5;
 
