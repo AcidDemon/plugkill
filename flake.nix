@@ -6,53 +6,50 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs =
-    {
-      self,
-      nixpkgs,
-      flake-utils,
-    }:
+  outputs = {
+    self,
+    nixpkgs,
+    flake-utils,
+  }:
     flake-utils.lib.eachSystem
-      [
-        "x86_64-linux"
-        "aarch64-linux"
-      ]
-      (
-        system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-        in
-        {
-          packages.default = pkgs.rustPlatform.buildRustPackage {
-            pname = "plugkill";
-            version = "0.1.0";
+    [
+      "x86_64-linux"
+      "aarch64-linux"
+    ]
+    (
+      system: let
+        pkgs = nixpkgs.legacyPackages.${system};
+      in {
+        packages.default = pkgs.rustPlatform.buildRustPackage {
+          pname = "plugkill";
+          version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
 
-            src = pkgs.lib.cleanSource ./.;
+          src = pkgs.lib.cleanSource ./.;
 
-            cargoHash = pkgs.lib.fakeHash;
+          cargoHash = "sha256-kQH1ODv3gt1tvErjkE2V/j+31sc/+DgqSB1oeez1TGY=";
 
-            meta = {
-              description = "Hardware kill-switch daemon -- shuts down the system when device changes are detected";
-              license = pkgs.lib.licenses.gpl3Plus;
-              platforms = [
-                "x86_64-linux"
-                "aarch64-linux"
-              ];
-              mainProgram = "plugkill";
-            };
-          };
-
-          devShells.default = pkgs.mkShell {
-            buildInputs = with pkgs; [
-              cargo
-              rustc
-              rust-analyzer
-              clippy
-              rustfmt
+          meta = {
+            description = "Hardware kill-switch daemon -- shuts down the system when device changes are detected";
+            license = pkgs.lib.licenses.gpl3Plus;
+            platforms = [
+              "x86_64-linux"
+              "aarch64-linux"
             ];
+            mainProgram = "plugkill";
           };
-        }
-      )
+        };
+
+        devShells.default = pkgs.mkShell {
+          buildInputs = with pkgs; [
+            cargo
+            rustc
+            rust-analyzer
+            clippy
+            rustfmt
+          ];
+        };
+      }
+    )
     // {
       nixosModules.default = import ./nix/module.nix self;
     };
