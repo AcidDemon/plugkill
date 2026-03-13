@@ -1,6 +1,7 @@
 use crate::sdcard::SdCardSnapshot;
 use crate::thunderbolt::ThunderboltSnapshot;
 use crate::usb::DeviceSnapshot;
+use std::collections::HashMap;
 use std::time::Instant;
 
 /// Operating mode of the daemon.
@@ -21,11 +22,24 @@ impl std::fmt::Display for DaemonMode {
     }
 }
 
+/// Device name lookup maps for human-readable violation messages.
+#[derive(Debug, Default)]
+pub struct DeviceNames {
+    /// USB vendor:product → product name
+    pub usb: HashMap<(String, String), String>,
+    /// Thunderbolt unique_id → device name
+    pub thunderbolt: HashMap<String, String>,
+    /// SD card serial → card name
+    pub sdcard: HashMap<String, String>,
+}
+
 /// Baseline snapshots for all monitored buses.
 pub struct Baselines {
     pub usb: Option<DeviceSnapshot>,
     pub thunderbolt: Option<ThunderboltSnapshot>,
     pub sdcard: Option<SdCardSnapshot>,
+    /// Cached device names from detailed enumeration at baseline capture time.
+    pub names: DeviceNames,
 }
 
 /// Runtime state of the daemon, shared between the poll loop and socket handler.

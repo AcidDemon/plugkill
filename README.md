@@ -1,5 +1,7 @@
 # plugkill
 
+![plugkill banner](assets/plugkill-banner-small.png)
+
 A hardware kill-switch daemon for Linux. Monitors USB, Thunderbolt, and SD card buses and shuts down the system when unauthorized device changes are detected.
 
 ## What it does

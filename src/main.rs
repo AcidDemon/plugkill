@@ -8,7 +8,7 @@ mod thunderbolt;
 mod usb;
 
 use crate::sdcard::{SdCardDeviceId, SdCardSnapshot};
-use crate::state::{Baselines, DaemonMode, DaemonState};
+use crate::state::{Baselines, DaemonMode, DaemonState, DeviceNames};
 use crate::thunderbolt::{ThunderboltDeviceId, ThunderboltSnapshot};
 use crate::usb::{DeviceSnapshot, UsbDeviceId};
 use clap::Parser;
@@ -300,8 +300,12 @@ fn main() {
     let daemon_state = Arc::new(Mutex::new(DaemonState::new(initial_mode)));
 
     // Capture baselines
+    let mut device_names = DeviceNames::default();
+
     let usb_baseline = if cfg.general.watch_usb {
-        Some(capture_usb_baseline())
+        let (snapshot, names) = capture_usb_baseline();
+        device_names.usb = names;
+        Some(snapshot)
     } else {
         None
     };
@@ -314,11 +318,12 @@ fn main() {
         }
     }
 
-    let tb_baseline = if cfg.general.watch_thunderbolt {
+    let (tb_baseline, tb_names) = if cfg.general.watch_thunderbolt {
         capture_thunderbolt_baseline(&cfg)
     } else {
-        None
+        (None, HashMap::new())
     };
+    device_names.thunderbolt = tb_names;
 
     let tb_whitelist = build_thunderbolt_whitelist(&cfg);
     if !tb_whitelist.devices().is_empty() {
@@ -328,11 +333,12 @@ fn main() {
         }
     }
 
-    let sd_baseline = if cfg.general.watch_sdcard {
+    let (sd_baseline, sd_names) = if cfg.general.watch_sdcard {
         capture_sdcard_baseline(&cfg)
     } else {
-        None
+        (None, HashMap::new())
     };
+    device_names.sdcard = sd_names;
 
     let sd_whitelist = build_sdcard_whitelist(&cfg);
     if !sd_whitelist.devices().is_empty() {
@@ -347,6 +353,7 @@ fn main() {
         usb: usb_baseline,
         thunderbolt: tb_baseline,
         sdcard: sd_baseline,
+        names: device_names,
     }));
     let config_arc = Arc::new(RwLock::new(cfg));
 
@@ -395,13 +402,19 @@ fn main() {
             info!("re-capturing baselines after re-arm");
 
             if cfg.general.watch_usb {
-                bl.usb = Some(capture_usb_baseline());
+                let (snapshot, names) = capture_usb_baseline();
+                bl.usb = Some(snapshot);
+                bl.names.usb = names;
             }
             if cfg.general.watch_thunderbolt {
-                bl.thunderbolt = capture_thunderbolt_baseline(&cfg);
+                let (snapshot, names) = capture_thunderbolt_baseline(&cfg);
+                bl.thunderbolt = snapshot;
+                bl.names.thunderbolt = names;
             }
             if cfg.general.watch_sdcard {
-                bl.sdcard = capture_sdcard_baseline(&cfg);
+                let (snapshot, names) = capture_sdcard_baseline(&cfg);
+                bl.sdcard = snapshot;
+                bl.names.sdcard = names;
             }
             needs_rebaseline = false;
         }
@@ -490,7 +503,14 @@ fn detect_violations(
                     if let Some(change) =
                         current.detect_changes(baseline, &build_usb_whitelist(&cfg))
                     {
-                        return Some(format!("USB VIOLATION: {change}"));
+                        let id = change.device_id();
+                        let name = bl
+                            .names
+                            .usb
+                            .get(&(id.vendor_id.clone(), id.product_id.clone()))
+                            .map(|n| format!(" [{n}]"))
+                            .unwrap_or_default();
+                        return Some(format!("USB VIOLATION: {change}{name}"));
                     }
                 }
                 Err(e) => {
@@ -508,7 +528,14 @@ fn detect_violations(
                     if let Some(change) =
                         current.detect_changes(tb_base, &build_thunderbolt_whitelist(&cfg))
                     {
-                        return Some(format!("THUNDERBOLT VIOLATION: {change}"));
+                        let id = change.device_id();
+                        let name = bl
+                            .names
+                            .thunderbolt
+                            .get(&id.unique_id)
+                            .map(|n| format!(" [{n}]"))
+                            .unwrap_or_default();
+                        return Some(format!("THUNDERBOLT VIOLATION: {change}{name}"));
                     }
                 }
                 Err(e) => {
@@ -528,7 +555,14 @@ fn detect_violations(
                     if let Some(change) =
                         current.detect_changes(sd_base, &build_sdcard_whitelist(&cfg))
                     {
-                        return Some(format!("SD CARD VIOLATION: {change}"));
+                        let id = change.device_id();
+                        let name = bl
+                            .names
+                            .sdcard
+                            .get(&id.serial)
+                            .map(|n| format!(" [{n}]"))
+                            .unwrap_or_default();
+                        return Some(format!("SD CARD VIOLATION: {change}{name}"));
                     }
                 }
                 Err(e) => {
@@ -566,59 +600,110 @@ fn handle_violation(
 }
 
 /// Capture USB baseline, exiting on failure.
-fn capture_usb_baseline() -> DeviceSnapshot {
-    match usb::enumerate_devices() {
-        Ok(snapshot) => {
-            info!(
-                "USB baseline captured: {} unique device ID(s)",
-                snapshot.len()
-            );
-            for (id, count) in snapshot.devices() {
-                info!("  {id} (count: {count})");
-            }
-            snapshot
-        }
+/// Also returns a name lookup map from detailed enumeration.
+fn capture_usb_baseline() -> (DeviceSnapshot, HashMap<(String, String), String>) {
+    let snapshot = match usb::enumerate_devices() {
+        Ok(s) => s,
         Err(e) => {
             error!("failed to enumerate USB devices: {e}");
             std::process::exit(1);
         }
+    };
+
+    // Build name lookup from detailed enumeration (best-effort)
+    let names = usb::enumerate_devices_detailed()
+        .map(|devices| {
+            devices
+                .into_iter()
+                .filter_map(|d| {
+                    d.product
+                        .map(|name| ((d.vendor_id, d.product_id), name))
+                })
+                .collect::<HashMap<_, _>>()
+        })
+        .unwrap_or_default();
+
+    info!(
+        "USB baseline captured: {} unique device ID(s)",
+        snapshot.len()
+    );
+    for (id, count) in snapshot.devices() {
+        let name = names
+            .get(&(id.vendor_id.clone(), id.product_id.clone()))
+            .map(|n| format!(" ({n})"))
+            .unwrap_or_default();
+        info!("  {id}{name} (count: {count})");
     }
+
+    (snapshot, names)
 }
 
 /// Capture Thunderbolt baseline, returning None if hardware not present.
-fn capture_thunderbolt_baseline(cfg: &config::Config) -> Option<ThunderboltSnapshot> {
+/// Also returns a name lookup map from detailed enumeration.
+fn capture_thunderbolt_baseline(
+    cfg: &config::Config,
+) -> (Option<ThunderboltSnapshot>, HashMap<String, String>) {
     match thunderbolt::enumerate_thunderbolt_devices() {
         Ok(snapshot) => {
+            let names = thunderbolt::enumerate_thunderbolt_devices_detailed()
+                .map(|devices| {
+                    devices
+                        .into_iter()
+                        .filter_map(|d| d.device_name.map(|name| (d.unique_id, name)))
+                        .collect::<HashMap<_, _>>()
+                })
+                .unwrap_or_default();
+
             info!("Thunderbolt baseline: {} device(s)", snapshot.len());
             for id in snapshot.devices().keys() {
-                info!("  {id}");
+                let name = names
+                    .get(&id.unique_id)
+                    .map(|n| format!(" ({n})"))
+                    .unwrap_or_default();
+                info!("  {id}{name}");
             }
-            Some(snapshot)
+            (Some(snapshot), names)
         }
         Err(_) => {
             if !cfg.thunderbolt_whitelist.devices.is_empty() {
                 warn!("thunderbolt_whitelist configured but no thunderbolt hardware found");
             }
-            None
+            (None, HashMap::new())
         }
     }
 }
 
 /// Capture SD card baseline, returning None if MMC bus not present.
-fn capture_sdcard_baseline(cfg: &config::Config) -> Option<SdCardSnapshot> {
+/// Also returns a name lookup map from detailed enumeration.
+fn capture_sdcard_baseline(
+    cfg: &config::Config,
+) -> (Option<SdCardSnapshot>, HashMap<String, String>) {
     match sdcard::enumerate_sdcard_devices() {
         Ok(snapshot) => {
+            let names = sdcard::enumerate_sdcard_devices_detailed()
+                .map(|devices| {
+                    devices
+                        .into_iter()
+                        .filter_map(|d| d.name.map(|name| (d.serial, name)))
+                        .collect::<HashMap<_, _>>()
+                })
+                .unwrap_or_default();
+
             info!("SD card baseline: {} device(s)", snapshot.len());
             for id in snapshot.devices().keys() {
-                info!("  {id}");
+                let name = names
+                    .get(&id.serial)
+                    .map(|n| format!(" ({n})"))
+                    .unwrap_or_default();
+                info!("  {id}{name}");
             }
-            Some(snapshot)
+            (Some(snapshot), names)
         }
         Err(_) => {
             if !cfg.sdcard_whitelist.devices.is_empty() {
                 warn!("sdcard_whitelist configured but no MMC bus found");
             }
-            None
+            (None, HashMap::new())
         }
     }
 }

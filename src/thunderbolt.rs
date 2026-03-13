@@ -43,6 +43,15 @@ pub enum ThunderboltChange {
     Removed(ThunderboltDeviceId),
 }
 
+impl ThunderboltChange {
+    /// Extract the device ID from any change variant.
+    pub fn device_id(&self) -> &ThunderboltDeviceId {
+        match self {
+            ThunderboltChange::Added(id) | ThunderboltChange::Removed(id) => id,
+        }
+    }
+}
+
 impl fmt::Display for ThunderboltChange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

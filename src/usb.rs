@@ -58,6 +58,17 @@ pub enum DeviceChange {
     },
 }
 
+impl DeviceChange {
+    /// Extract the device ID from any change variant.
+    pub fn device_id(&self) -> &UsbDeviceId {
+        match self {
+            DeviceChange::Added(id) | DeviceChange::Removed(id) => id,
+            DeviceChange::CountIncreased { device, .. }
+            | DeviceChange::CountDecreased { device, .. } => device,
+        }
+    }
+}
+
 impl fmt::Display for DeviceChange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

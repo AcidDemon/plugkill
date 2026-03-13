@@ -46,6 +46,15 @@ pub enum SdCardChange {
     Removed(SdCardDeviceId),
 }
 
+impl SdCardChange {
+    /// Extract the device ID from any change variant.
+    pub fn device_id(&self) -> &SdCardDeviceId {
+        match self {
+            SdCardChange::Added(id) | SdCardChange::Removed(id) => id,
+        }
+    }
+}
+
 impl fmt::Display for SdCardChange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
