@@ -615,10 +615,7 @@ fn capture_usb_baseline() -> (DeviceSnapshot, HashMap<(String, String), String>)
         .map(|devices| {
             devices
                 .into_iter()
-                .filter_map(|d| {
-                    d.product
-                        .map(|name| ((d.vendor_id, d.product_id), name))
-                })
+                .filter_map(|d| d.product.map(|name| ((d.vendor_id, d.product_id), name)))
                 .collect::<HashMap<_, _>>()
         })
         .unwrap_or_default();
