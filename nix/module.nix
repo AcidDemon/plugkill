@@ -107,7 +107,8 @@ in
         ProtectSystem = "strict";
         ProtectHome = false;  # tool may need to shred files anywhere
         PrivateTmp = true;
-        ReadOnlyPaths = [ "/sys/bus/usb/devices" "/sys/bus/thunderbolt/devices" "/sys/bus/mmc/devices" ];
+        # Prefix with '-' so systemd ignores paths that don't exist on this machine
+        ReadOnlyPaths = [ "-/sys/bus/usb/devices" "-/sys/bus/thunderbolt/devices" "-/sys/bus/mmc/devices" ];
         RuntimeDirectory = "plugkill";
         RuntimeDirectoryMode = "0755";
         ReadWritePaths = [
