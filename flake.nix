@@ -28,6 +28,12 @@
 
           cargoHash = "sha256-kQH1ODv3gt1tvErjkE2V/j+31sc/+DgqSB1oeez1TGY=";
 
+          # Integration tests require /sys/bus/usb/devices which is unavailable in the Nix sandbox
+          checkFlags = [
+            "--skip=test_list_devices_no_root"
+            "--skip=test_generate_whitelist_no_root"
+          ];
+
           meta = {
             description = "Hardware kill-switch daemon -- shuts down the system when device changes are detected";
             license = pkgs.lib.licenses.gpl3Plus;
