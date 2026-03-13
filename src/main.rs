@@ -1,12 +1,15 @@
 mod config;
 mod error;
 mod kill;
+mod power;
 mod sdcard;
 mod socket;
 mod state;
 mod thunderbolt;
 mod usb;
 
+use crate::config::PowerPolicy;
+use crate::power::PowerState;
 use crate::sdcard::{SdCardDeviceId, SdCardSnapshot};
 use crate::state::{Baselines, DaemonMode, DaemonState, DeviceNames};
 use crate::thunderbolt::{ThunderboltDeviceId, ThunderboltSnapshot};
@@ -18,7 +21,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Hardware kill-switch daemon — shuts down the system when device changes are detected.
 #[derive(Parser, Debug)]
@@ -55,6 +58,10 @@ struct Cli {
     /// Disable SD card monitoring
     #[arg(long)]
     no_sdcard: bool,
+
+    /// Disable power supply monitoring
+    #[arg(long)]
+    no_power: bool,
 
     /// Start in learning mode (log violations, don't kill)
     #[arg(long)]
@@ -263,6 +270,9 @@ fn main() {
     if cli.no_sdcard {
         cfg.general.watch_sdcard = false;
     }
+    if cli.no_power {
+        cfg.general.watch_power = false;
+    }
 
     if cfg.general.dry_run {
         warn!("running in DRY RUN mode — no destructive actions will be taken");
@@ -273,6 +283,7 @@ fn main() {
         cfg.general.watch_usb.then_some("USB"),
         cfg.general.watch_thunderbolt.then_some("Thunderbolt"),
         cfg.general.watch_sdcard.then_some("SD card"),
+        cfg.general.watch_power.then_some("power supply"),
     ]
     .into_iter()
     .flatten()
@@ -348,11 +359,26 @@ fn main() {
         }
     }
 
+    let power_baseline = if cfg.general.watch_power {
+        let state = power::read_power_state();
+        info!("power baseline: {state} (policy: {:?})", cfg.power.policy);
+        if cfg.power.require_locked {
+            info!("  power violations require session to be locked");
+        }
+        if cfg.power.grace_secs > 0 {
+            info!("  grace period: {}s", cfg.power.grace_secs);
+        }
+        Some(state)
+    } else {
+        None
+    };
+
     // Shared structures
     let baselines = Arc::new(RwLock::new(Baselines {
         usb: usb_baseline,
         thunderbolt: tb_baseline,
         sdcard: sd_baseline,
+        power: power_baseline,
         names: device_names,
     }));
     let config_arc = Arc::new(RwLock::new(cfg));
@@ -416,6 +442,15 @@ fn main() {
                 bl.sdcard = snapshot;
                 bl.names.sdcard = names;
             }
+            if cfg.general.watch_power {
+                let state = power::read_power_state();
+                info!("power re-baseline: {state}");
+                bl.power = Some(state);
+                // Reset power trigger state on re-baseline
+                let mut st = daemon_state.lock().unwrap();
+                st.power_unplug_at = None;
+                st.power_trigger_once_fired = false;
+            }
             needs_rebaseline = false;
         }
 
@@ -441,6 +476,9 @@ fn main() {
                         if cli.no_sdcard {
                             new_cfg.general.watch_sdcard = false;
                         }
+                        if cli.no_power {
+                            new_cfg.general.watch_power = false;
+                        }
 
                         *config_arc.write().unwrap() = new_cfg;
                         info!("configuration reloaded successfully");
@@ -460,7 +498,8 @@ fn main() {
         }
 
         // Detect violations while holding read locks, collect description if any
-        let violation = detect_violations(&config_arc, &baselines);
+        let violation = detect_violations(&config_arc, &baselines)
+            .or_else(|| check_power_violation(&config_arc, &baselines, &daemon_state));
 
         // Process violation outside of read locks
         if let Some(description) = violation {
@@ -574,7 +613,123 @@ fn detect_violations(
         }
     }
 
+    // Power check is handled separately in check_power_violation() because
+    // it needs mutable access to DaemonState for grace period tracking.
     None
+}
+
+/// Check for power supply violations, managing grace period and trigger-once state.
+/// Returns a violation description if one should be triggered, or None.
+fn check_power_violation(
+    config_arc: &Arc<RwLock<config::Config>>,
+    baselines: &Arc<RwLock<Baselines>>,
+    daemon_state: &Arc<Mutex<DaemonState>>,
+) -> Option<String> {
+    let cfg = config_arc.read().unwrap();
+    if !cfg.general.watch_power {
+        return None;
+    }
+
+    let bl = baselines.read().unwrap();
+    let baseline_power = bl.power?;
+    drop(bl);
+
+    let current = power::read_power_state();
+    let mut st = daemon_state.lock().unwrap();
+
+    // Monitor policy: log transitions but never violate
+    if cfg.power.policy == PowerPolicy::Monitor {
+        if current != baseline_power {
+            info!("power state changed: {baseline_power} → {current} (monitor mode, no action)");
+            // Update baseline to avoid repeated logging
+            drop(st);
+            let mut bl = baselines.write().unwrap();
+            bl.power = Some(current);
+        }
+        return None;
+    }
+
+    // Check if we transitioned to battery
+    let on_battery = current == PowerState::Battery;
+
+    // If not on battery, clear any pending grace period and return
+    if !on_battery {
+        if st.power_unplug_at.is_some() {
+            info!("AC power restored during grace period");
+            st.power_unplug_at = None;
+        }
+        return None;
+    }
+
+    // Trigger-once: skip if already fired
+    if cfg.power.policy == PowerPolicy::TriggerOnce && st.power_trigger_once_fired {
+        return None;
+    }
+
+    // If baseline was already battery, no transition occurred
+    if baseline_power == PowerState::Battery {
+        return None;
+    }
+
+    // require_locked: only trigger if session is locked
+    if cfg.power.require_locked {
+        match power::is_session_locked() {
+            Some(true) => {} // locked — proceed with violation check
+            Some(false) => {
+                // Not locked — user is present, don't trigger
+                // But track the unplug time in case session locks later
+                if st.power_unplug_at.is_none() {
+                    st.power_unplug_at = Some(Instant::now());
+                }
+                return None;
+            }
+            None => {
+                // Can't determine lock state — proceed without this check
+                warn!("cannot determine session lock state, proceeding with power check");
+            }
+        }
+    }
+
+    // Grace period handling
+    if cfg.power.grace_secs > 0 {
+        let now = Instant::now();
+        match st.power_unplug_at {
+            None => {
+                // First detection of battery — start grace period
+                info!(
+                    "AC power removed, grace period started ({}s)",
+                    cfg.power.grace_secs
+                );
+                st.power_unplug_at = Some(now);
+                return None;
+            }
+            Some(unplug_time) => {
+                let elapsed = now.duration_since(unplug_time);
+                if elapsed < Duration::from_secs(cfg.power.grace_secs) {
+                    // Still within grace period
+                    return None;
+                }
+                // Grace period expired — fall through to violation
+            }
+        }
+    } else if st.power_unplug_at.is_none() {
+        // No grace period and first detection — record unplug time for logging
+        st.power_unplug_at = Some(Instant::now());
+    }
+
+    // Mark trigger-once as fired
+    if cfg.power.policy == PowerPolicy::TriggerOnce {
+        st.power_trigger_once_fired = true;
+    }
+
+    let policy_label = match cfg.power.policy {
+        PowerPolicy::TriggerOnce => "trigger-once",
+        PowerPolicy::AcRequired => "ac-required",
+        PowerPolicy::Monitor => unreachable!(),
+    };
+    Some(format!(
+        "POWER VIOLATION: AC power removed (policy: {policy_label})"
+    ))
 }
 
 /// Handle a violation according to the current daemon mode.

@@ -12,6 +12,8 @@ pub enum Error {
     Thunderbolt(String),
     /// SD card enumeration failed.
     SdCard(String),
+    /// Power supply monitoring failed.
+    Power(String),
     /// Kill sequence encountered an error.
     Kill(String),
     /// Socket-related error.
@@ -28,6 +30,7 @@ impl fmt::Display for Error {
             Error::Usb(msg) => write!(f, "USB detection error: {msg}"),
             Error::Thunderbolt(msg) => write!(f, "Thunderbolt detection error: {msg}"),
             Error::SdCard(msg) => write!(f, "SD card detection error: {msg}"),
+            Error::Power(msg) => write!(f, "power monitoring error: {msg}"),
             Error::Kill(msg) => write!(f, "kill sequence error: {msg}"),
             Error::Socket(msg) => write!(f, "socket error: {msg}"),
             Error::Io(err) => write!(f, "I/O error: {err}"),
@@ -43,6 +46,7 @@ impl std::error::Error for Error {
             | Error::Usb(_)
             | Error::Thunderbolt(_)
             | Error::SdCard(_)
+            | Error::Power(_)
             | Error::Kill(_)
             | Error::Socket(_) => None,
         }

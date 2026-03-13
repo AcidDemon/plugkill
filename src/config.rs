@@ -19,6 +19,8 @@ pub struct Config {
     pub thunderbolt_whitelist: ThunderboltWhitelistConfig,
     #[serde(default)]
     pub sdcard_whitelist: SdCardWhitelistConfig,
+    #[serde(default)]
+    pub power: PowerConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -36,6 +38,8 @@ pub struct GeneralConfig {
     pub watch_thunderbolt: bool,
     #[serde(default = "default_true")]
     pub watch_sdcard: bool,
+    #[serde(default)]
+    pub watch_power: bool,
 }
 
 impl Default for GeneralConfig {
@@ -47,6 +51,7 @@ impl Default for GeneralConfig {
             watch_usb: true,
             watch_thunderbolt: true,
             watch_sdcard: true,
+            watch_power: false,
         }
     }
 }
@@ -143,6 +148,44 @@ pub struct SdCardWhitelistConfig {
 #[serde(deny_unknown_fields)]
 pub struct SdCardWhitelistEntry {
     pub serial: String,
+}
+
+/// Power monitoring policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PowerPolicy {
+    /// First AC unplug is a violation; after re-arm the new state becomes baseline.
+    TriggerOnce,
+    /// Any transition to battery is always a violation.
+    AcRequired,
+    /// Log power changes but never treat them as violations.
+    Monitor,
+}
+
+fn default_power_policy() -> PowerPolicy {
+    PowerPolicy::Monitor
+}
+
+/// Power monitoring configuration.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PowerConfig {
+    #[serde(default = "default_power_policy")]
+    pub policy: PowerPolicy,
+    #[serde(default)]
+    pub grace_secs: u64,
+    #[serde(default)]
+    pub require_locked: bool,
+}
+
+impl Default for PowerConfig {
+    fn default() -> Self {
+        Self {
+            policy: PowerPolicy::Monitor,
+            grace_secs: 0,
+            require_locked: false,
+        }
+    }
 }
 
 // --- Validation ---
@@ -256,6 +299,19 @@ fn validate(config: &mut Config) -> Result<(), Error> {
                 "sdcard_whitelist.devices[{i}].serial: must not be empty"
             )));
         }
+    }
+
+    // Validate power config
+    const MAX_GRACE_SECS: u64 = 300;
+    if config.power.grace_secs > MAX_GRACE_SECS {
+        warn!(
+            "power.grace_secs {} is above maximum {MAX_GRACE_SECS}, clamping",
+            config.power.grace_secs
+        );
+        config.power.grace_secs = MAX_GRACE_SECS;
+    }
+    if config.power.require_locked && config.power.policy == PowerPolicy::Monitor {
+        warn!("power.require_locked has no effect when policy is 'monitor'");
     }
 
     // Validate kill commands — binaries must be absolute paths to prevent
@@ -404,6 +460,8 @@ log_file = "/var/log/plugkill/plugkill.log"
 watch_usb = true
 watch_thunderbolt = true
 watch_sdcard = true
+# Power supply monitoring (opt-in, disabled by default)
+watch_power = false
 
 [whitelist]
 # Whitelisted USB devices. Each entry has vendor_id, product_id, and optional count.
@@ -440,6 +498,17 @@ devices = []
 #   { serial = "0x12345678" },
 # ]
 devices = []
+
+[power]
+# Power supply monitoring policy:
+#   "trigger-once" — first AC unplug is a violation, re-arm accepts new state
+#   "ac-required"  — any transition to battery is always a violation
+#   "monitor"      — log power changes without triggering violations (default)
+# policy = "monitor"
+# Grace period in seconds before AC removal triggers a violation (0 = immediate)
+# grace_secs = 0
+# Only trigger power violations when the session is locked (user walked away)
+# require_locked = false
 
 [commands]
 # Commands to execute during kill sequence (each is an argv array)
@@ -774,6 +843,67 @@ watch_thunderbolt = false
         assert!(config.general.watch_usb);
         assert!(!config.general.watch_thunderbolt);
         assert!(config.general.watch_sdcard); // default true
+    }
+
+    #[test]
+    fn test_power_config_defaults() {
+        let f = write_config("");
+        let config = load_for_test(f.path()).unwrap();
+        assert_eq!(config.power.policy, PowerPolicy::Monitor);
+        assert_eq!(config.power.grace_secs, 0);
+        assert!(!config.power.require_locked);
+        assert!(!config.general.watch_power);
+    }
+
+    #[test]
+    fn test_power_config_all_policies() {
+        for (policy_str, expected) in [
+            ("trigger-once", PowerPolicy::TriggerOnce),
+            ("ac-required", PowerPolicy::AcRequired),
+            ("monitor", PowerPolicy::Monitor),
+        ] {
+            let content = format!(
+                r#"
+[power]
+policy = "{policy_str}"
+"#
+            );
+            let f = write_config(&content);
+            let config = load_for_test(f.path()).unwrap();
+            assert_eq!(config.power.policy, expected);
+        }
+    }
+
+    #[test]
+    fn test_power_grace_secs_clamped() {
+        let f = write_config(
+            r#"
+[power]
+grace_secs = 9999
+"#,
+        );
+        let config = load_for_test(f.path()).unwrap();
+        assert_eq!(config.power.grace_secs, 300);
+    }
+
+    #[test]
+    fn test_power_config_full() {
+        let f = write_config(
+            r#"
+[general]
+watch_power = true
+
+[power]
+policy = "trigger-once"
+grace_secs = 30
+require_locked = true
+"#,
+        );
+        let config = load_for_test(f.path()).unwrap();
+        assert!(config.general.watch_power);
+        assert_eq!(config.power.policy, PowerPolicy::TriggerOnce);
+        assert_eq!(config.power.grace_secs, 30);
+        assert!(config.power.require_locked);
     }
 
     #[test]

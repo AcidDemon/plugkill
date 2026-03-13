@@ -50,6 +50,7 @@ in
           watch_usb = true;
           watch_thunderbolt = true;
           watch_sdcard = true;
+          watch_power = false;
         };
         whitelist = {
           devices = [ ];
@@ -66,6 +67,11 @@ in
         };
         sdcard_whitelist = {
           devices = [ ];
+        };
+        power = {
+          policy = "monitor";
+          grace_secs = 0;
+          require_locked = false;
         };
         commands = {
           kill_commands = [ ];
@@ -126,7 +132,7 @@ in
         ProtectHome = false;  # tool may need to shred files anywhere
         PrivateTmp = true;
         # Prefix with '-' so systemd ignores paths that don't exist on this machine
-        ReadOnlyPaths = [ "-/sys/bus/usb/devices" "-/sys/bus/thunderbolt/devices" "-/sys/bus/mmc/devices" ];
+        ReadOnlyPaths = [ "-/sys/bus/usb/devices" "-/sys/bus/thunderbolt/devices" "-/sys/bus/mmc/devices" "-/sys/class/power_supply" ];
         RuntimeDirectory = "plugkill";
         RuntimeDirectoryMode = "0755";
         ReadWritePaths = [

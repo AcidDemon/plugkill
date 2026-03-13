@@ -1,3 +1,4 @@
+use crate::power::PowerState;
 use crate::sdcard::SdCardSnapshot;
 use crate::thunderbolt::ThunderboltSnapshot;
 use crate::usb::DeviceSnapshot;
@@ -38,6 +39,7 @@ pub struct Baselines {
     pub usb: Option<DeviceSnapshot>,
     pub thunderbolt: Option<ThunderboltSnapshot>,
     pub sdcard: Option<SdCardSnapshot>,
+    pub power: Option<PowerState>,
     /// Cached device names from detailed enumeration at baseline capture time.
     pub names: DeviceNames,
 }
@@ -51,6 +53,10 @@ pub struct DaemonState {
     pub violations_logged: u64,
     pub last_poll: Option<Instant>,
     pub reload_pending: bool,
+    /// When power went from AC to Battery (for grace period tracking).
+    pub power_unplug_at: Option<Instant>,
+    /// Whether the trigger-once policy has already fired and needs re-arm.
+    pub power_trigger_once_fired: bool,
 }
 
 impl DaemonState {
@@ -63,6 +69,8 @@ impl DaemonState {
             violations_logged: 0,
             last_poll: None,
             reload_pending: false,
+            power_unplug_at: None,
+            power_trigger_once_fired: false,
         }
     }
 

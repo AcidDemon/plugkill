@@ -2,7 +2,7 @@
 
 ![plugkill banner](assets/plugkill-banner-small.png)
 
-A hardware kill-switch daemon for Linux. Monitors USB, Thunderbolt, and SD card buses and shuts down the system when unauthorized device changes are detected.
+A hardware kill-switch daemon for Linux. Monitors USB, Thunderbolt, SD card buses, and AC power supply, shutting down the system when unauthorized device changes or power removal are detected.
 
 ## What it does
 
@@ -10,8 +10,9 @@ plugkill continuously polls your hardware buses. The moment a device is added, r
 
 ## Features
 
-- **Multi-bus monitoring** — USB, Thunderbolt/USB4, and SD/MMC/SDIO, each independently toggleable
+- **Multi-bus monitoring** — USB, Thunderbolt/USB4, SD/MMC/SDIO, and AC power supply, each independently toggleable
 - **Selective bus control** — disable individual buses via config (`watch_usb = false`) or CLI (`--no-usb`)
+- **Power supply monitoring** — detect AC power removal with three policies (trigger-once, ac-required, monitor), configurable grace period, and session lock awareness via D-Bus logind
 - **Learning mode** — log violations without triggering the kill sequence; switch at runtime via socket
 - **Runtime control socket** — disarm/arm, switch modes, reload config, query status over a Unix domain socket
 - **Config hot-reload** — change whitelists or settings without restarting the daemon
@@ -25,6 +26,7 @@ plugkill continuously polls your hardware buses. The moment a device is added, r
 | USB | `/sys/bus/usb/devices` | `vendor_id` + `product_id` (with count) | `[whitelist]` |
 | Thunderbolt/USB4 | `/sys/bus/thunderbolt/devices` | `unique_id` (UUID) | `[thunderbolt_whitelist]` |
 | SD/MMC/SDIO | `/sys/bus/mmc/devices` | `serial` (hex) | `[sdcard_whitelist]` |
+| Power supply | `/sys/class/power_supply` | — (policy-based) | `[power]` |
 
 ## Getting started
 
@@ -117,6 +119,7 @@ log_file = "/var/log/plugkill/plugkill.log"       # kill event log
 watch_usb = true                                  # monitor USB bus
 watch_thunderbolt = true                          # monitor Thunderbolt bus
 watch_sdcard = true                               # monitor SD/MMC bus
+watch_power = false                               # monitor AC power supply (opt-in)
 
 [whitelist]
 devices = [
@@ -132,6 +135,11 @@ devices = [
 devices = [
   # { serial = "0x12345678" },
 ]
+
+[power]
+# policy = "monitor"             # "trigger-once", "ac-required", or "monitor"
+# grace_secs = 0                 # seconds to wait before triggering (0-300)
+# require_locked = false         # only trigger when session is locked
 
 [destruction]
 files_to_remove = []             # files to securely shred (3-pass random overwrite)
@@ -166,6 +174,7 @@ Daemon options:
       --no-usb              Disable USB monitoring
       --no-thunderbolt      Disable Thunderbolt monitoring
       --no-sdcard           Disable SD card monitoring
+      --no-power            Disable power supply monitoring
       --socket <PATH>       Control socket path [default: /run/plugkill/plugkill.sock]
 
 Client commands (connect to running daemon):
@@ -212,6 +221,12 @@ Utility (no root required):
               sdcard_whitelist.devices = [
                 { serial = "0x12345678"; }
               ];
+              general.watch_power = true;
+              power = {
+                policy = "trigger-once";
+                grace_secs = 30;
+                require_locked = true;
+              };
               destruction = {
                 files_to_remove = [ "/home/user/secrets.tar.gpg" ];
                 do_sync = true;
@@ -284,6 +299,7 @@ sudo systemctl enable --now plugkill.service
 - **Prevent BadUSB / rubber ducky attacks** — any unauthorized USB insertion triggers immediate shutdown
 - **Block Thunderbolt DMA attacks** — detect new physical connections before device authorization
 - **Audit hardware changes** — run in learning mode to log every device event without acting on it
+- **Power-unplug protection** — detect AC power removal on laptops left unattended (with optional grace period and session lock awareness)
 - **Production hardening** — detect unauthorized SD card or USB insertion on embedded/kiosk systems
 
 ## How it works
@@ -294,7 +310,8 @@ sudo systemctl enable --now plugkill.service
    - In **enforce mode**: the kill sequence fires (mask signals, shred files, run commands, sync, wipe swap, self-destruct, power off)
    - In **learn mode**: the violation is logged and counted, but no action is taken
 4. If device enumeration itself fails, this is treated as tampering
-5. Buses that lack hardware (no Thunderbolt controller, no MMC bus) are silently skipped
+5. Power monitoring (if enabled) tracks AC/battery transitions with configurable grace periods and optional session lock detection via D-Bus logind
+6. Buses that lack hardware (no Thunderbolt controller, no MMC bus) are silently skipped
 
 ## Origin
 
@@ -307,7 +324,7 @@ A from-scratch Rust rewrite of the original [usbkill](https://github.com/hephaes
 | Linux | x86_64 | Supported |
 | Linux | aarch64 | Supported |
 
-plugkill is Linux-only. It reads from sysfs (`/sys/bus/`) and uses the `reboot(2)` syscall for shutdown.
+plugkill is Linux-only. It reads from sysfs (`/sys/bus/`, `/sys/class/power_supply`), optionally queries D-Bus logind for session lock state, and uses the `reboot(2)` syscall for shutdown.
 
 ## License
 
