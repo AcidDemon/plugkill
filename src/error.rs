@@ -13,6 +13,7 @@ pub enum Error {
     /// SD card enumeration failed.
     SdCard(String),
     /// Power supply monitoring failed.
+    #[allow(dead_code)]
     Power(String),
     /// Kill sequence encountered an error.
     Kill(String),
