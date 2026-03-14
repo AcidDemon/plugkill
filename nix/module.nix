@@ -21,7 +21,7 @@ let
 in
 {
   options.services.plugkill = {
-    enable = lib.mkEnableOption "plugkill, a hardware kill-switch daemon that shuts down the system on device changes (USB, Thunderbolt, SD card)";
+    enable = lib.mkEnableOption "plugkill, a hardware kill-switch daemon that shuts down the system on device changes (USB, Thunderbolt, SD card, power, network, lid)";
 
     package = lib.mkOption {
       type = lib.types.package;
@@ -51,6 +51,8 @@ in
           watch_thunderbolt = true;
           watch_sdcard = true;
           watch_power = false;
+          watch_network = false;
+          watch_lid = false;
         };
         whitelist = {
           devices = [ ];
@@ -73,6 +75,15 @@ in
           grace_secs = 0;
           require_locked = false;
         };
+        network = {
+          policy = "monitor";
+          grace_secs = 0;
+          interfaces = [ ];
+        };
+        lid = {
+          policy = "monitor";
+          grace_secs = 0;
+        };
         commands = {
           kill_commands = [ ];
         };
@@ -83,6 +94,9 @@ in
       '';
     };
   };
+
+  # For lid monitoring, set services.logind.lidSwitchIgnoreInhibited = false
+  # so that plugkill's delay inhibitor is respected by logind.
 
   config = lib.mkIf cfg.enable {
     # Create log directory with restrictive permissions
@@ -132,7 +146,8 @@ in
         ProtectHome = false;  # tool may need to shred files anywhere
         PrivateTmp = true;
         # Prefix with '-' so systemd ignores paths that don't exist on this machine
-        ReadOnlyPaths = [ "-/sys/bus/usb/devices" "-/sys/bus/thunderbolt/devices" "-/sys/bus/mmc/devices" "-/sys/class/power_supply" ];
+        # Prefix with '-' so systemd ignores paths that don't exist on this machine
+        ReadOnlyPaths = [ "-/sys/bus/usb/devices" "-/sys/bus/thunderbolt/devices" "-/sys/bus/mmc/devices" "-/sys/class/power_supply" "-/sys/class/net" "-/proc/acpi" ];
         RuntimeDirectory = "plugkill";
         RuntimeDirectoryMode = "0755";
         ReadWritePaths = [

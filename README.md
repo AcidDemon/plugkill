@@ -2,7 +2,7 @@
 
 ![plugkill banner](assets/plugkill-banner-small.png)
 
-A hardware kill-switch daemon for Linux. Monitors USB, Thunderbolt, SD card buses, and AC power supply, shutting down the system when unauthorized device changes or power removal are detected.
+A hardware kill-switch daemon for Linux. Monitors USB, Thunderbolt, SD card buses, AC power supply, network link state, and laptop lid, shutting down the system when unauthorized device changes, power removal, cable tampering, or lid close are detected.
 
 ## What it does
 
@@ -10,9 +10,11 @@ plugkill continuously polls your hardware buses. The moment a device is added, r
 
 ## Features
 
-- **Multi-bus monitoring** — USB, Thunderbolt/USB4, SD/MMC/SDIO, and AC power supply, each independently toggleable
+- **Multi-bus monitoring** — USB, Thunderbolt/USB4, SD/MMC/SDIO, AC power supply, network link, and laptop lid, each independently toggleable
 - **Selective bus control** — disable individual buses via config (`watch_usb = false`) or CLI (`--no-usb`)
 - **Power supply monitoring** — detect AC power removal with three policies (trigger-once, ac-required, monitor), configurable grace period, and session lock awareness via D-Bus logind
+- **Network link monitoring** — detect Ethernet cable removal on physical NICs, with configurable interface filter and grace period
+- **Lid close monitoring** — detect laptop lid close via D-Bus logind (with procfs fallback), acquires a sleep inhibitor to act before suspend
 - **Learning mode** — log violations without triggering the kill sequence; switch at runtime via socket
 - **Runtime control socket** — disarm/arm, switch modes, reload config, query status over a Unix domain socket
 - **Config hot-reload** — change whitelists or settings without restarting the daemon
@@ -27,6 +29,8 @@ plugkill continuously polls your hardware buses. The moment a device is added, r
 | Thunderbolt/USB4 | `/sys/bus/thunderbolt/devices` | `unique_id` (UUID) | `[thunderbolt_whitelist]` |
 | SD/MMC/SDIO | `/sys/bus/mmc/devices` | `serial` (hex) | `[sdcard_whitelist]` |
 | Power supply | `/sys/class/power_supply` | — (policy-based) | `[power]` |
+| Network | `/sys/class/net` | — (interface filter) | `[network]` |
+| Lid | D-Bus logind / `/proc/acpi` | — (policy-based) | `[lid]` |
 
 ## Getting started
 
@@ -120,6 +124,8 @@ watch_usb = true                                  # monitor USB bus
 watch_thunderbolt = true                          # monitor Thunderbolt bus
 watch_sdcard = true                               # monitor SD/MMC bus
 watch_power = false                               # monitor AC power supply (opt-in)
+watch_network = false                             # monitor network link state (opt-in)
+watch_lid = false                                 # monitor laptop lid close (opt-in)
 
 [whitelist]
 devices = [
@@ -140,6 +146,15 @@ devices = [
 # policy = "monitor"             # "trigger-once", "ac-required", or "monitor"
 # grace_secs = 0                 # seconds to wait before triggering (0-300)
 # require_locked = false         # only trigger when session is locked
+
+[network]
+# policy = "monitor"             # "kill" or "monitor"
+# grace_secs = 0                 # seconds to wait before triggering (0-300)
+# interfaces = ["eth0"]          # specific interfaces (empty = all physical NICs)
+
+[lid]
+# policy = "monitor"             # "kill" or "monitor"
+# grace_secs = 0                 # seconds to wait before triggering (0-300)
 
 [destruction]
 files_to_remove = []             # files to securely shred (3-pass random overwrite)
@@ -175,6 +190,8 @@ Daemon options:
       --no-thunderbolt      Disable Thunderbolt monitoring
       --no-sdcard           Disable SD card monitoring
       --no-power            Disable power supply monitoring
+      --no-network          Disable network link monitoring
+      --no-lid              Disable lid close monitoring
       --socket <PATH>       Control socket path [default: /run/plugkill/plugkill.sock]
 
 Client commands (connect to running daemon):
@@ -226,6 +243,16 @@ Utility (no root required):
                 policy = "trigger-once";
                 grace_secs = 30;
                 require_locked = true;
+              };
+              general.watch_network = true;
+              network = {
+                policy = "kill";
+                interfaces = [ "eth0" ];
+              };
+              general.watch_lid = true;
+              lid = {
+                policy = "kill";
+                grace_secs = 5;
               };
               destruction = {
                 files_to_remove = [ "/home/user/secrets.tar.gpg" ];
@@ -300,6 +327,8 @@ sudo systemctl enable --now plugkill.service
 - **Block Thunderbolt DMA attacks** — detect new physical connections before device authorization
 - **Audit hardware changes** — run in learning mode to log every device event without acting on it
 - **Power-unplug protection** — detect AC power removal on laptops left unattended (with optional grace period and session lock awareness)
+- **Network cable tampering** — detect Ethernet cable removal as a signal that someone is physically accessing the machine
+- **Lid-close anti-theft** — detect laptop lid close when someone snatches a running laptop; sleep inhibitor gives plugkill a window to act before suspend
 - **Production hardening** — detect unauthorized SD card or USB insertion on embedded/kiosk systems
 
 ## How it works
@@ -311,7 +340,9 @@ sudo systemctl enable --now plugkill.service
    - In **learn mode**: the violation is logged and counted, but no action is taken
 4. If device enumeration itself fails, this is treated as tampering
 5. Power monitoring (if enabled) tracks AC/battery transitions with configurable grace periods and optional session lock detection via D-Bus logind
-6. Buses that lack hardware (no Thunderbolt controller, no MMC bus) are silently skipped
+6. Network monitoring (if enabled) detects link-down transitions on physical NICs via sysfs operstate
+7. Lid monitoring (if enabled) detects lid close via D-Bus logind (with procfs fallback) and acquires a sleep inhibitor to act before suspend
+8. Buses that lack hardware (no Thunderbolt controller, no MMC bus) are silently skipped
 
 ## Origin
 
@@ -324,7 +355,7 @@ A from-scratch Rust rewrite of the original [usbkill](https://github.com/hephaes
 | Linux | x86_64 | Supported |
 | Linux | aarch64 | Supported |
 
-plugkill is Linux-only. It reads from sysfs (`/sys/bus/`, `/sys/class/power_supply`), optionally queries D-Bus logind for session lock state, and uses the `reboot(2)` syscall for shutdown.
+plugkill is Linux-only. It reads from sysfs (`/sys/bus/`, `/sys/class/power_supply`, `/sys/class/net`), optionally queries D-Bus logind for session lock state and lid state, and uses the `reboot(2)` syscall for shutdown.
 
 ## License
 

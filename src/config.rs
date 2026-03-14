@@ -21,6 +21,10 @@ pub struct Config {
     pub sdcard_whitelist: SdCardWhitelistConfig,
     #[serde(default)]
     pub power: PowerConfig,
+    #[serde(default)]
+    pub network: NetworkConfig,
+    #[serde(default)]
+    pub lid: LidConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -40,6 +44,10 @@ pub struct GeneralConfig {
     pub watch_sdcard: bool,
     #[serde(default)]
     pub watch_power: bool,
+    #[serde(default)]
+    pub watch_network: bool,
+    #[serde(default)]
+    pub watch_lid: bool,
 }
 
 impl Default for GeneralConfig {
@@ -52,6 +60,8 @@ impl Default for GeneralConfig {
             watch_thunderbolt: true,
             watch_sdcard: true,
             watch_power: false,
+            watch_network: false,
+            watch_lid: false,
         }
     }
 }
@@ -188,6 +198,98 @@ impl Default for PowerConfig {
     }
 }
 
+/// Network monitoring policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NetworkPolicy {
+    /// Link loss is a violation.
+    Kill,
+    /// Log link changes but never treat them as violations.
+    Monitor,
+}
+
+fn default_network_policy() -> NetworkPolicy {
+    NetworkPolicy::Monitor
+}
+
+/// Network interface monitoring configuration.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NetworkConfig {
+    #[serde(default = "default_network_policy")]
+    pub policy: NetworkPolicy,
+    #[serde(default)]
+    pub grace_secs: u64,
+    #[serde(default)]
+    pub interfaces: Vec<String>,
+}
+
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            policy: NetworkPolicy::Monitor,
+            grace_secs: 0,
+            interfaces: Vec::new(),
+        }
+    }
+}
+
+/// Lid monitoring policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LidPolicy {
+    /// Lid close is a violation.
+    Kill,
+    /// Log lid changes but never treat them as violations.
+    Monitor,
+}
+
+fn default_lid_policy() -> LidPolicy {
+    LidPolicy::Monitor
+}
+
+/// Lid close monitoring configuration.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LidConfig {
+    #[serde(default = "default_lid_policy")]
+    pub policy: LidPolicy,
+    #[serde(default)]
+    pub grace_secs: u64,
+}
+
+impl Default for LidConfig {
+    fn default() -> Self {
+        Self {
+            policy: LidPolicy::Monitor,
+            grace_secs: 0,
+        }
+    }
+}
+
+/// Validate a network interface name: alphanumeric, dots, dashes, underscores only.
+fn validate_interface_name(name: &str, context: &str) -> Result<(), Error> {
+    if name.is_empty() {
+        return Err(Error::Config(format!(
+            "{context}: interface name must not be empty"
+        )));
+    }
+    if name.contains('/') || name.contains('\\') || name.contains('\0') {
+        return Err(Error::Config(format!(
+            "{context}: interface name must not contain path separators: '{name}'"
+        )));
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+    {
+        return Err(Error::Config(format!(
+            "{context}: interface name contains invalid characters: '{name}'"
+        )));
+    }
+    Ok(())
+}
+
 // --- Validation ---
 
 /// Validate that a path is absolute and contains no `..` segments.
@@ -312,6 +414,27 @@ fn validate(config: &mut Config) -> Result<(), Error> {
     }
     if config.power.require_locked && config.power.policy == PowerPolicy::Monitor {
         warn!("power.require_locked has no effect when policy is 'monitor'");
+    }
+
+    // Validate network config
+    if config.network.grace_secs > MAX_GRACE_SECS {
+        warn!(
+            "network.grace_secs {} is above maximum {MAX_GRACE_SECS}, clamping",
+            config.network.grace_secs
+        );
+        config.network.grace_secs = MAX_GRACE_SECS;
+    }
+    for (i, iface) in config.network.interfaces.iter().enumerate() {
+        validate_interface_name(iface, &format!("network.interfaces[{i}]"))?;
+    }
+
+    // Validate lid config
+    if config.lid.grace_secs > MAX_GRACE_SECS {
+        warn!(
+            "lid.grace_secs {} is above maximum {MAX_GRACE_SECS}, clamping",
+            config.lid.grace_secs
+        );
+        config.lid.grace_secs = MAX_GRACE_SECS;
     }
 
     // Validate kill commands — binaries must be absolute paths to prevent
@@ -462,6 +585,10 @@ watch_thunderbolt = true
 watch_sdcard = true
 # Power supply monitoring (opt-in, disabled by default)
 watch_power = false
+# Network link monitoring (opt-in, disabled by default)
+watch_network = false
+# Lid close monitoring (opt-in, disabled by default)
+watch_lid = false
 
 [whitelist]
 # Whitelisted USB devices. Each entry has vendor_id, product_id, and optional count.
@@ -509,6 +636,24 @@ devices = []
 # grace_secs = 0
 # Only trigger power violations when the session is locked (user walked away)
 # require_locked = false
+
+[network]
+# Network link monitoring policy:
+#   "kill"    — link loss on a monitored interface triggers a violation
+#   "monitor" — log link changes without triggering violations (default)
+# policy = "monitor"
+# Grace period in seconds before link loss triggers a violation (0 = immediate)
+# grace_secs = 0
+# Interfaces to monitor (empty = all physical NICs)
+# interfaces = ["eth0"]
+
+[lid]
+# Lid close monitoring policy:
+#   "kill"    — lid close triggers a violation
+#   "monitor" — log lid changes without triggering violations (default)
+# policy = "monitor"
+# Grace period in seconds before lid close triggers a violation (0 = immediate)
+# grace_secs = 0
 
 [commands]
 # Commands to execute during kill sequence (each is an argv array)

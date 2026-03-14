@@ -265,8 +265,8 @@ pub fn print_thunderbolt_device_list(
         if let Some(ref vendor) = dev.vendor_name {
             println!("    Vendor:     {vendor}");
         }
-        if let Some(ref gen) = dev.generation {
-            let gen_label = match gen.as_str() {
+        if let Some(ref generation) = dev.generation {
+            let gen_label = match generation.as_str() {
                 "1" => "Thunderbolt 1",
                 "2" => "Thunderbolt 2",
                 "3" => "Thunderbolt 3",

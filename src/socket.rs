@@ -329,9 +329,9 @@ pub fn send_command(socket_path: &Path, request: &serde_json::Value) -> Result<(
 
 /// Remove the socket file (for clean shutdown).
 pub fn cleanup_socket(socket_path: &Path) {
-    if socket_path.exists() {
-        if let Err(e) = std::fs::remove_file(socket_path) {
-            warn!("failed to remove socket {}: {e}", socket_path.display());
-        }
+    if socket_path.exists()
+        && let Err(e) = std::fs::remove_file(socket_path)
+    {
+        warn!("failed to remove socket {}: {e}", socket_path.display());
     }
 }

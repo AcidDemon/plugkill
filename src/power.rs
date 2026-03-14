@@ -58,17 +58,17 @@ pub fn read_power_state_from(sysfs_root: &Path) -> PowerState {
 
         if supply_type == "Mains" {
             found_mains = true;
-            if let Ok(Some(online)) = read_sysfs_attr(&dev_path.join("online")) {
-                if online == "1" {
-                    return PowerState::Ac;
-                }
+            if let Ok(Some(online)) = read_sysfs_attr(&dev_path.join("online"))
+                && online == "1"
+            {
+                return PowerState::Ac;
             }
         } else if supply_type == "Battery" {
             // Check battery status as secondary AC indicator
-            if let Ok(Some(status)) = read_sysfs_attr(&dev_path.join("status")) {
-                if status == "Charging" || status == "Full" {
-                    return PowerState::Ac;
-                }
+            if let Ok(Some(status)) = read_sysfs_attr(&dev_path.join("status"))
+                && (status == "Charging" || status == "Full")
+            {
+                return PowerState::Ac;
             }
         }
     }

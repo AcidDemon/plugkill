@@ -1,3 +1,5 @@
+use crate::lid::LidState;
+use crate::network::NetworkSnapshot;
 use crate::power::PowerState;
 use crate::sdcard::SdCardSnapshot;
 use crate::thunderbolt::ThunderboltSnapshot;
@@ -40,6 +42,8 @@ pub struct Baselines {
     pub thunderbolt: Option<ThunderboltSnapshot>,
     pub sdcard: Option<SdCardSnapshot>,
     pub power: Option<PowerState>,
+    pub network: Option<NetworkSnapshot>,
+    pub lid: Option<LidState>,
     /// Cached device names from detailed enumeration at baseline capture time.
     pub names: DeviceNames,
 }
@@ -57,6 +61,10 @@ pub struct DaemonState {
     pub power_unplug_at: Option<Instant>,
     /// Whether the trigger-once policy has already fired and needs re-arm.
     pub power_trigger_once_fired: bool,
+    /// When network link went down (for grace period tracking).
+    pub network_link_down_at: Option<Instant>,
+    /// When lid was closed (for grace period tracking).
+    pub lid_close_at: Option<Instant>,
 }
 
 impl DaemonState {
@@ -71,6 +79,8 @@ impl DaemonState {
             reload_pending: false,
             power_unplug_at: None,
             power_trigger_once_fired: false,
+            network_link_down_at: None,
+            lid_close_at: None,
         }
     }
 

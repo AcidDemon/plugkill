@@ -122,7 +122,33 @@ fn test_malformed_config() {
         .stderr(predicates::str::contains("failed to load config"));
 }
 
-// --- New tests for selective monitoring flags ---
+// --- New tests for network and lid features ---
+
+#[test]
+fn test_help_mentions_network_and_lid_flags() {
+    Command::cargo_bin("plugkill")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("--no-network"))
+        .stdout(predicates::str::contains("--no-lid"));
+}
+
+#[test]
+fn test_default_config_has_network_and_lid_sections() {
+    Command::cargo_bin("plugkill")
+        .unwrap()
+        .arg("--default-config")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("[network]"))
+        .stdout(predicates::str::contains("[lid]"))
+        .stdout(predicates::str::contains("watch_network"))
+        .stdout(predicates::str::contains("watch_lid"));
+}
+
+// --- Tests for selective monitoring flags ---
 
 #[test]
 fn test_help_mentions_bus_flags() {

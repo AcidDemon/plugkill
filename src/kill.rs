@@ -69,12 +69,11 @@ pub fn execute_kill_sequence(config: &Config, reason: &str) -> Result<(), Error>
     }
 
     // Step 6: Wipe swap
-    if config.destruction.do_wipe_swap {
-        if let Some(ref device) = config.destruction.swap_device {
-            if let Err(e) = wipe_swap(device, dry_run) {
-                error!("swap wipe failed: {e}");
-            }
-        }
+    if config.destruction.do_wipe_swap
+        && let Some(ref device) = config.destruction.swap_device
+        && let Err(e) = wipe_swap(device, dry_run)
+    {
+        error!("swap wipe failed: {e}");
     }
 
     // Step 7: Melt self
@@ -97,11 +96,11 @@ fn log_kill_event(config: &Config, reason: &str) {
     let log_path = &config.general.log_file;
 
     // Ensure log directory exists (create_dir_all is idempotent, no TOCTOU)
-    if let Some(parent) = log_path.parent() {
-        if let Err(e) = fs::create_dir_all(parent) {
-            error!("cannot create log directory {}: {e}", parent.display());
-            return;
-        }
+    if let Some(parent) = log_path.parent()
+        && let Err(e) = fs::create_dir_all(parent)
+    {
+        error!("cannot create log directory {}: {e}", parent.display());
+        return;
     }
 
     let timestamp = chrono_free_timestamp();
@@ -123,11 +122,11 @@ fn chrono_free_timestamp() -> String {
     // For a kill-switch, exact wall-clock time is less important than
     // having *some* timestamp. We avoid chrono to minimize dependencies.
     let mut buf = [0u8; 64];
-    if let Ok(mut f) = File::open("/proc/uptime") {
-        if let Ok(n) = f.read(&mut buf) {
-            let s = String::from_utf8_lossy(&buf[..n]);
-            return format!("[uptime: {}s]", s.trim());
-        }
+    if let Ok(mut f) = File::open("/proc/uptime")
+        && let Ok(n) = f.read(&mut buf)
+    {
+        let s = String::from_utf8_lossy(&buf[..n]);
+        return format!("[uptime: {}s]", s.trim());
     }
     "[unknown time]".to_string()
 }
@@ -390,10 +389,10 @@ fn melt_self(dry_run: bool) {
     info!("melting self — removing binary and config");
 
     // Remove the running binary
-    if let Ok(exe) = std::env::current_exe() {
-        if let Err(e) = fs::remove_file(&exe) {
-            error!("cannot remove own binary {}: {e}", exe.display());
-        }
+    if let Ok(exe) = std::env::current_exe()
+        && let Err(e) = fs::remove_file(&exe)
+    {
+        error!("cannot remove own binary {}: {e}", exe.display());
     }
 
     // Remove config directory

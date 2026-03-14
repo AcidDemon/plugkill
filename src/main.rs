@@ -1,6 +1,8 @@
 mod config;
 mod error;
 mod kill;
+mod lid;
+mod network;
 mod power;
 mod sdcard;
 mod socket;
@@ -8,7 +10,8 @@ mod state;
 mod thunderbolt;
 mod usb;
 
-use crate::config::PowerPolicy;
+use crate::config::{LidPolicy, NetworkPolicy, PowerPolicy};
+use crate::lid::LidState;
 use crate::power::PowerState;
 use crate::sdcard::{SdCardDeviceId, SdCardSnapshot};
 use crate::state::{Baselines, DaemonMode, DaemonState, DeviceNames};
@@ -62,6 +65,14 @@ struct Cli {
     /// Disable power supply monitoring
     #[arg(long)]
     no_power: bool,
+
+    /// Disable network link monitoring
+    #[arg(long)]
+    no_network: bool,
+
+    /// Disable lid close monitoring
+    #[arg(long)]
+    no_lid: bool,
 
     /// Start in learning mode (log violations, don't kill)
     #[arg(long)]
@@ -120,18 +131,18 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        if let Ok(tb_devices) = thunderbolt::enumerate_thunderbolt_devices_detailed() {
-            if !tb_devices.is_empty() {
-                print!(
-                    "{}",
-                    thunderbolt::generate_thunderbolt_whitelist_toml(&tb_devices)
-                );
-            }
+        if let Ok(tb_devices) = thunderbolt::enumerate_thunderbolt_devices_detailed()
+            && !tb_devices.is_empty()
+        {
+            print!(
+                "{}",
+                thunderbolt::generate_thunderbolt_whitelist_toml(&tb_devices)
+            );
         }
-        if let Ok(sd_devices) = sdcard::enumerate_sdcard_devices_detailed() {
-            if !sd_devices.is_empty() {
-                print!("{}", sdcard::generate_sdcard_whitelist_toml(&sd_devices));
-            }
+        if let Ok(sd_devices) = sdcard::enumerate_sdcard_devices_detailed()
+            && !sd_devices.is_empty()
+        {
+            print!("{}", sdcard::generate_sdcard_whitelist_toml(&sd_devices));
         }
         return;
     }
@@ -162,30 +173,30 @@ fn main() {
             }
         }
 
-        if let Ok(tb_devices) = thunderbolt::enumerate_thunderbolt_devices_detailed() {
-            if !tb_devices.is_empty() {
-                let tb_whitelist_map = loaded_wl.as_ref().map(|wl| {
-                    let mut map: HashMap<String, ()> = HashMap::new();
-                    for entry in &wl.thunderbolt.devices {
-                        map.insert(entry.unique_id.clone(), ());
-                    }
-                    map
-                });
-                thunderbolt::print_thunderbolt_device_list(&tb_devices, tb_whitelist_map.as_ref());
-            }
+        if let Ok(tb_devices) = thunderbolt::enumerate_thunderbolt_devices_detailed()
+            && !tb_devices.is_empty()
+        {
+            let tb_whitelist_map = loaded_wl.as_ref().map(|wl| {
+                let mut map: HashMap<String, ()> = HashMap::new();
+                for entry in &wl.thunderbolt.devices {
+                    map.insert(entry.unique_id.clone(), ());
+                }
+                map
+            });
+            thunderbolt::print_thunderbolt_device_list(&tb_devices, tb_whitelist_map.as_ref());
         }
 
-        if let Ok(sd_devices) = sdcard::enumerate_sdcard_devices_detailed() {
-            if !sd_devices.is_empty() {
-                let sd_whitelist_map = loaded_wl.as_ref().map(|wl| {
-                    let mut map: HashMap<String, ()> = HashMap::new();
-                    for entry in &wl.sdcard.devices {
-                        map.insert(entry.serial.clone(), ());
-                    }
-                    map
-                });
-                sdcard::print_sdcard_device_list(&sd_devices, sd_whitelist_map.as_ref());
-            }
+        if let Ok(sd_devices) = sdcard::enumerate_sdcard_devices_detailed()
+            && !sd_devices.is_empty()
+        {
+            let sd_whitelist_map = loaded_wl.as_ref().map(|wl| {
+                let mut map: HashMap<String, ()> = HashMap::new();
+                for entry in &wl.sdcard.devices {
+                    map.insert(entry.serial.clone(), ());
+                }
+                map
+            });
+            sdcard::print_sdcard_device_list(&sd_devices, sd_whitelist_map.as_ref());
         }
         return;
     }
@@ -273,6 +284,12 @@ fn main() {
     if cli.no_power {
         cfg.general.watch_power = false;
     }
+    if cli.no_network {
+        cfg.general.watch_network = false;
+    }
+    if cli.no_lid {
+        cfg.general.watch_lid = false;
+    }
 
     if cfg.general.dry_run {
         warn!("running in DRY RUN mode — no destructive actions will be taken");
@@ -284,6 +301,8 @@ fn main() {
         cfg.general.watch_thunderbolt.then_some("Thunderbolt"),
         cfg.general.watch_sdcard.then_some("SD card"),
         cfg.general.watch_power.then_some("power supply"),
+        cfg.general.watch_network.then_some("network"),
+        cfg.general.watch_lid.then_some("lid"),
     ]
     .into_iter()
     .flatten()
@@ -373,12 +392,61 @@ fn main() {
         None
     };
 
+    let network_baseline = if cfg.general.watch_network {
+        let snapshot = network::enumerate_interfaces(&cfg.network.interfaces);
+        let iface_count = snapshot.interfaces().len();
+        info!(
+            "network baseline: {iface_count} interface(s) (policy: {:?})",
+            cfg.network.policy
+        );
+        for (name, state) in snapshot.interfaces() {
+            info!("  {name}: {state}");
+        }
+        if cfg.network.grace_secs > 0 {
+            info!("  grace period: {}s", cfg.network.grace_secs);
+        }
+        Some(snapshot)
+    } else {
+        None
+    };
+
+    let lid_baseline = if cfg.general.watch_lid {
+        let state = lid::read_lid_state();
+        info!("lid baseline: {state} (policy: {:?})", cfg.lid.policy);
+        if cfg.lid.grace_secs > 0 {
+            info!("  grace period: {}s", cfg.lid.grace_secs);
+        }
+        Some(state)
+    } else {
+        None
+    };
+
+    // Acquire sleep inhibitor if lid monitoring is enabled
+    let _sleep_inhibitor = if cfg.general.watch_lid {
+        match lid::acquire_sleep_inhibitor() {
+            Some(fd) => {
+                info!("acquired logind sleep inhibitor for lid monitoring");
+                Some(fd)
+            }
+            None => {
+                warn!(
+                    "failed to acquire sleep inhibitor — lid close may not be detected before suspend"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Shared structures
     let baselines = Arc::new(RwLock::new(Baselines {
         usb: usb_baseline,
         thunderbolt: tb_baseline,
         sdcard: sd_baseline,
         power: power_baseline,
+        network: network_baseline,
+        lid: lid_baseline,
         names: device_names,
     }));
     let config_arc = Arc::new(RwLock::new(cfg));
@@ -451,6 +519,23 @@ fn main() {
                 st.power_unplug_at = None;
                 st.power_trigger_once_fired = false;
             }
+            if cfg.general.watch_network {
+                let snapshot = network::enumerate_interfaces(&cfg.network.interfaces);
+                info!(
+                    "network re-baseline: {} interface(s)",
+                    snapshot.interfaces().len()
+                );
+                bl.network = Some(snapshot);
+                let mut st = daemon_state.lock().unwrap();
+                st.network_link_down_at = None;
+            }
+            if cfg.general.watch_lid {
+                let state = lid::read_lid_state();
+                info!("lid re-baseline: {state}");
+                bl.lid = Some(state);
+                let mut st = daemon_state.lock().unwrap();
+                st.lid_close_at = None;
+            }
             needs_rebaseline = false;
         }
 
@@ -479,6 +564,12 @@ fn main() {
                         if cli.no_power {
                             new_cfg.general.watch_power = false;
                         }
+                        if cli.no_network {
+                            new_cfg.general.watch_network = false;
+                        }
+                        if cli.no_lid {
+                            new_cfg.general.watch_lid = false;
+                        }
 
                         *config_arc.write().unwrap() = new_cfg;
                         info!("configuration reloaded successfully");
@@ -499,22 +590,22 @@ fn main() {
 
         // Detect violations while holding read locks, collect description if any
         let violation = detect_violations(&config_arc, &baselines)
-            .or_else(|| check_power_violation(&config_arc, &baselines, &daemon_state));
+            .or_else(|| check_power_violation(&config_arc, &baselines, &daemon_state))
+            .or_else(|| check_network_violation(&config_arc, &baselines, &daemon_state))
+            .or_else(|| check_lid_violation(&config_arc, &baselines, &daemon_state));
 
         // Process violation outside of read locks
-        if let Some(description) = violation {
-            if handle_violation(&daemon_state, &description, &config_arc.read().unwrap()) {
-                if let Err(e) =
-                    kill::execute_kill_sequence(&config_arc.read().unwrap(), &description)
-                {
-                    error!("kill sequence error: {e}");
-                    if !config_arc.read().unwrap().general.dry_run {
-                        std::process::exit(1);
-                    }
+        if let Some(description) = violation
+            && handle_violation(&daemon_state, &description, &config_arc.read().unwrap())
+        {
+            if let Err(e) = kill::execute_kill_sequence(&config_arc.read().unwrap(), &description) {
+                error!("kill sequence error: {e}");
+                if !config_arc.read().unwrap().general.dry_run {
+                    std::process::exit(1);
                 }
-                if config_arc.read().unwrap().general.dry_run {
-                    warn!("dry run — continuing patrol");
-                }
+            }
+            if config_arc.read().unwrap().general.dry_run {
+                warn!("dry run — continuing patrol");
             }
         }
 
@@ -535,80 +626,77 @@ fn detect_violations(
     let bl = baselines.read().unwrap();
 
     // USB check
-    if cfg.general.watch_usb {
-        if let Some(ref baseline) = bl.usb {
-            match usb::enumerate_devices() {
-                Ok(current) => {
-                    if let Some(change) =
-                        current.detect_changes(baseline, &build_usb_whitelist(&cfg))
-                    {
-                        let id = change.device_id();
-                        let name = bl
-                            .names
-                            .usb
-                            .get(&(id.vendor_id.clone(), id.product_id.clone()))
-                            .map(|n| format!(" [{n}]"))
-                            .unwrap_or_default();
-                        return Some(format!("USB VIOLATION: {change}{name}"));
-                    }
+    if cfg.general.watch_usb
+        && let Some(ref baseline) = bl.usb
+    {
+        match usb::enumerate_devices() {
+            Ok(current) => {
+                if let Some(change) = current.detect_changes(baseline, &build_usb_whitelist(&cfg)) {
+                    let id = change.device_id();
+                    let name = bl
+                        .names
+                        .usb
+                        .get(&(id.vendor_id.clone(), id.product_id.clone()))
+                        .map(|n| format!(" [{n}]"))
+                        .unwrap_or_default();
+                    return Some(format!("USB VIOLATION: {change}{name}"));
                 }
-                Err(e) => {
-                    return Some(format!("USB enumeration failure (possible tampering): {e}"));
-                }
+            }
+            Err(e) => {
+                return Some(format!("USB enumeration failure (possible tampering): {e}"));
             }
         }
     }
 
     // Thunderbolt check
-    if cfg.general.watch_thunderbolt {
-        if let Some(ref tb_base) = bl.thunderbolt {
-            match thunderbolt::enumerate_thunderbolt_devices() {
-                Ok(current) => {
-                    if let Some(change) =
-                        current.detect_changes(tb_base, &build_thunderbolt_whitelist(&cfg))
-                    {
-                        let id = change.device_id();
-                        let name = bl
-                            .names
-                            .thunderbolt
-                            .get(&id.unique_id)
-                            .map(|n| format!(" [{n}]"))
-                            .unwrap_or_default();
-                        return Some(format!("THUNDERBOLT VIOLATION: {change}{name}"));
-                    }
+    if cfg.general.watch_thunderbolt
+        && let Some(ref tb_base) = bl.thunderbolt
+    {
+        match thunderbolt::enumerate_thunderbolt_devices() {
+            Ok(current) => {
+                if let Some(change) =
+                    current.detect_changes(tb_base, &build_thunderbolt_whitelist(&cfg))
+                {
+                    let id = change.device_id();
+                    let name = bl
+                        .names
+                        .thunderbolt
+                        .get(&id.unique_id)
+                        .map(|n| format!(" [{n}]"))
+                        .unwrap_or_default();
+                    return Some(format!("THUNDERBOLT VIOLATION: {change}{name}"));
                 }
-                Err(e) => {
-                    return Some(format!(
-                        "Thunderbolt enumeration failure (possible tampering): {e}"
-                    ));
-                }
+            }
+            Err(e) => {
+                return Some(format!(
+                    "Thunderbolt enumeration failure (possible tampering): {e}"
+                ));
             }
         }
     }
 
     // SD card check
-    if cfg.general.watch_sdcard {
-        if let Some(ref sd_base) = bl.sdcard {
-            match sdcard::enumerate_sdcard_devices() {
-                Ok(current) => {
-                    if let Some(change) =
-                        current.detect_changes(sd_base, &build_sdcard_whitelist(&cfg))
-                    {
-                        let id = change.device_id();
-                        let name = bl
-                            .names
-                            .sdcard
-                            .get(&id.serial)
-                            .map(|n| format!(" [{n}]"))
-                            .unwrap_or_default();
-                        return Some(format!("SD CARD VIOLATION: {change}{name}"));
-                    }
+    if cfg.general.watch_sdcard
+        && let Some(ref sd_base) = bl.sdcard
+    {
+        match sdcard::enumerate_sdcard_devices() {
+            Ok(current) => {
+                if let Some(change) = current.detect_changes(sd_base, &build_sdcard_whitelist(&cfg))
+                {
+                    let id = change.device_id();
+                    let name = bl
+                        .names
+                        .sdcard
+                        .get(&id.serial)
+                        .map(|n| format!(" [{n}]"))
+                        .unwrap_or_default();
+                    return Some(format!("SD CARD VIOLATION: {change}{name}"));
                 }
-                Err(e) => {
-                    return Some(format!(
-                        "SD card enumeration failure (possible tampering): {e}"
-                    ));
-                }
+            }
+            Err(e) => {
+                return Some(format!(
+                    "SD card enumeration failure (possible tampering): {e}"
+                ));
             }
         }
     }
@@ -730,6 +818,142 @@ fn check_power_violation(
     Some(format!(
         "POWER VIOLATION: AC power removed (policy: {policy_label})"
     ))
+}
+
+/// Check for network link-down violations, managing grace period.
+/// Returns a violation description if one should be triggered, or None.
+fn check_network_violation(
+    config_arc: &Arc<RwLock<config::Config>>,
+    baselines: &Arc<RwLock<Baselines>>,
+    daemon_state: &Arc<Mutex<DaemonState>>,
+) -> Option<String> {
+    let cfg = config_arc.read().unwrap();
+    if !cfg.general.watch_network {
+        return None;
+    }
+
+    let bl = baselines.read().unwrap();
+    let baseline_network = bl.network.as_ref()?;
+
+    let current = network::enumerate_interfaces(&cfg.network.interfaces);
+
+    // Check for link-down transition
+    let change = match current.detect_link_down(baseline_network) {
+        Some(c) => c,
+        None => {
+            // Link restored — clear grace period if active
+            let mut st = daemon_state.lock().unwrap();
+            if st.network_link_down_at.is_some() {
+                info!("network link restored during grace period");
+                st.network_link_down_at = None;
+            }
+            return None;
+        }
+    };
+
+    drop(bl);
+
+    // Monitor policy: log but never violate
+    if cfg.network.policy == NetworkPolicy::Monitor {
+        info!("network link change: {change} (monitor mode, no action)");
+        // Update baseline to avoid repeated logging
+        let mut bl = baselines.write().unwrap();
+        bl.network = Some(current);
+        return None;
+    }
+
+    let mut st = daemon_state.lock().unwrap();
+
+    // Grace period handling
+    if cfg.network.grace_secs > 0 {
+        let now = Instant::now();
+        match st.network_link_down_at {
+            None => {
+                info!(
+                    "network link down on {}, grace period started ({}s)",
+                    change.interface, cfg.network.grace_secs
+                );
+                st.network_link_down_at = Some(now);
+                return None;
+            }
+            Some(down_time) => {
+                let elapsed = now.duration_since(down_time);
+                if elapsed < Duration::from_secs(cfg.network.grace_secs) {
+                    return None;
+                }
+            }
+        }
+    } else if st.network_link_down_at.is_none() {
+        st.network_link_down_at = Some(Instant::now());
+    }
+
+    Some(format!("NETWORK VIOLATION: {change}"))
+}
+
+/// Check for lid close violations, managing grace period.
+/// Returns a violation description if one should be triggered, or None.
+fn check_lid_violation(
+    config_arc: &Arc<RwLock<config::Config>>,
+    baselines: &Arc<RwLock<Baselines>>,
+    daemon_state: &Arc<Mutex<DaemonState>>,
+) -> Option<String> {
+    let cfg = config_arc.read().unwrap();
+    if !cfg.general.watch_lid {
+        return None;
+    }
+
+    let bl = baselines.read().unwrap();
+    let baseline_lid = bl.lid?;
+    drop(bl);
+
+    let current = lid::read_lid_state();
+
+    // Only care about transitions to Closed
+    if current != LidState::Closed {
+        let mut st = daemon_state.lock().unwrap();
+        if st.lid_close_at.is_some() {
+            info!("lid reopened during grace period");
+            st.lid_close_at = None;
+        }
+        return None;
+    }
+
+    // If baseline was already closed, no transition
+    if baseline_lid == LidState::Closed {
+        return None;
+    }
+
+    // Monitor policy: log but never violate
+    if cfg.lid.policy == LidPolicy::Monitor {
+        info!("lid closed (monitor mode, no action)");
+        let mut bl = baselines.write().unwrap();
+        bl.lid = Some(current);
+        return None;
+    }
+
+    let mut st = daemon_state.lock().unwrap();
+
+    // Grace period handling
+    if cfg.lid.grace_secs > 0 {
+        let now = Instant::now();
+        match st.lid_close_at {
+            None => {
+                info!("lid closed, grace period started ({}s)", cfg.lid.grace_secs);
+                st.lid_close_at = Some(now);
+                return None;
+            }
+            Some(close_time) => {
+                let elapsed = now.duration_since(close_time);
+                if elapsed < Duration::from_secs(cfg.lid.grace_secs) {
+                    return None;
+                }
+            }
+        }
+    } else if st.lid_close_at.is_none() {
+        st.lid_close_at = Some(Instant::now());
+    }
+
+    Some("LID VIOLATION: laptop lid closed".to_string())
 }
 
 /// Handle a violation according to the current daemon mode.

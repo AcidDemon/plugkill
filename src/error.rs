@@ -15,6 +15,12 @@ pub enum Error {
     /// Power supply monitoring failed.
     #[allow(dead_code)]
     Power(String),
+    /// Network interface monitoring failed.
+    #[allow(dead_code)]
+    Network(String),
+    /// Lid state monitoring failed.
+    #[allow(dead_code)]
+    Lid(String),
     /// Kill sequence encountered an error.
     Kill(String),
     /// Socket-related error.
@@ -32,6 +38,8 @@ impl fmt::Display for Error {
             Error::Thunderbolt(msg) => write!(f, "Thunderbolt detection error: {msg}"),
             Error::SdCard(msg) => write!(f, "SD card detection error: {msg}"),
             Error::Power(msg) => write!(f, "power monitoring error: {msg}"),
+            Error::Network(msg) => write!(f, "network monitoring error: {msg}"),
+            Error::Lid(msg) => write!(f, "lid monitoring error: {msg}"),
             Error::Kill(msg) => write!(f, "kill sequence error: {msg}"),
             Error::Socket(msg) => write!(f, "socket error: {msg}"),
             Error::Io(err) => write!(f, "I/O error: {err}"),
@@ -48,6 +56,8 @@ impl std::error::Error for Error {
             | Error::Thunderbolt(_)
             | Error::SdCard(_)
             | Error::Power(_)
+            | Error::Network(_)
+            | Error::Lid(_)
             | Error::Kill(_)
             | Error::Socket(_) => None,
         }

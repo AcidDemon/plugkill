@@ -1,5 +1,5 @@
 {
-  description = "plugkill - hardware kill-switch daemon that shuts down the system on device changes (USB, Thunderbolt, SD card)";
+  description = "plugkill - hardware kill-switch daemon that shuts down the system on device changes (USB, Thunderbolt, SD card, power, network, lid)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
