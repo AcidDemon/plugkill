@@ -26,7 +26,7 @@
 
           src = pkgs.lib.cleanSource ./.;
 
-          cargoHash = "sha256-Xoip24GNuOY6i8WjA2a+W8NlhFjoRNHsqTdY9bXAujI=";
+          cargoHash = "sha256-tXyKJNCdAPNUvdiIkSkwG6oOGvjyrFJtQwIWzR1/O+s=";
 
           # Integration tests require /sys/bus/usb/devices which is unavailable in the Nix sandbox
           checkFlags = [
