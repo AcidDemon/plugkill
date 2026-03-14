@@ -103,14 +103,15 @@ pub fn acquire_sleep_inhibitor() -> Option<std::os::fd::OwnedFd> {
         }
     };
 
-    // Inhibit("handle-lid-switch:sleep", "plugkill", "hardware monitoring", "delay")
+    // Inhibit sleep so plugkill gets a window to act before lid-triggered suspend.
+    // "delay" mode is only valid for "shutdown" and "sleep", not "handle-lid-switch".
     let reply = conn.call_method(
         Some("org.freedesktop.login1"),
         "/org/freedesktop/login1",
         Some("org.freedesktop.login1.Manager"),
         "Inhibit",
         &(
-            "handle-lid-switch:sleep",
+            "sleep",
             "plugkill",
             "hardware kill-switch monitoring before suspend",
             "delay",
