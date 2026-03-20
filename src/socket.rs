@@ -286,7 +286,14 @@ fn handle_reload(state: &Arc<Mutex<DaemonState>>) -> Response {
 // --- Client functions ---
 
 /// Send a request to the daemon and print the response.
-pub fn send_command(socket_path: &Path, request: &serde_json::Value) -> Result<(), String> {
+///
+/// When `raw_json` is true, the response is pretty-printed as JSON.
+/// Otherwise, a human-readable summary is printed.
+pub fn send_command(
+    socket_path: &Path,
+    request: &serde_json::Value,
+    raw_json: bool,
+) -> Result<(), String> {
     let stream = UnixStream::connect(socket_path).map_err(|e| {
         format!(
             "cannot connect to daemon socket {}: {e} (is the daemon running?)",
@@ -314,16 +321,126 @@ pub fn send_command(socket_path: &Path, request: &serde_json::Value) -> Result<(
     let mut lines = reader.lines();
     match lines.next() {
         Some(Ok(line)) => {
-            // Pretty-print the response
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
-                println!("{}", serde_json::to_string_pretty(&value).unwrap_or(line));
+            if raw_json {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+                    println!("{}", serde_json::to_string_pretty(&value).unwrap_or(line));
+                } else {
+                    println!("{line}");
+                }
             } else {
-                println!("{line}");
+                print_human_response(&line);
             }
             Ok(())
         }
         Some(Err(e)) => Err(format!("failed to read response: {e}")),
         None => Err("no response from daemon".to_string()),
+    }
+}
+
+fn format_duration(secs: u64) -> String {
+    let h = secs / 3600;
+    let m = (secs % 3600) / 60;
+    let s = secs % 60;
+    if h > 0 {
+        format!("{h}h {m}m {s}s")
+    } else if m > 0 {
+        format!("{m}m {s}s")
+    } else {
+        format!("{s}s")
+    }
+}
+
+fn print_human_response(line: &str) {
+    let Ok(resp) = serde_json::from_str::<serde_json::Value>(line) else {
+        println!("{line}");
+        return;
+    };
+
+    let ok = resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    if !ok {
+        let msg = resp
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error");
+        eprintln!("Error: {msg}");
+        return;
+    }
+
+    let Some(data) = resp.get("data") else {
+        println!("OK");
+        return;
+    };
+
+    // Status response (has "armed" field)
+    if let Some(armed) = data.get("armed").and_then(|v| v.as_bool()) {
+        let mode = data
+            .get("mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let status_str = if armed { "armed" } else { "disarmed" };
+        println!("Status:     {status_str} ({mode} mode)");
+
+        if let Some(secs) = data.get("uptime_secs").and_then(|v| v.as_u64()) {
+            println!("Uptime:     {}", format_duration(secs));
+        }
+
+        if let Some(secs) = data
+            .get("disarm_remaining_secs")
+            .and_then(|v| v.as_u64())
+        {
+            if secs > 0 {
+                println!("Re-arms in: {}", format_duration(secs));
+            }
+        }
+
+        let usb = data.get("usb_devices").and_then(|v| v.as_u64()).unwrap_or(0);
+        let tb = data
+            .get("thunderbolt_devices")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let sd = data
+            .get("sdcard_devices")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        println!("Devices:    {usb} USB, {tb} Thunderbolt, {sd} SD card");
+
+        let mut watching = Vec::new();
+        if data.get("usb_watching").and_then(|v| v.as_bool()) == Some(true) {
+            watching.push("USB");
+        }
+        if data.get("thunderbolt_watching").and_then(|v| v.as_bool()) == Some(true) {
+            watching.push("Thunderbolt");
+        }
+        if data.get("sdcard_watching").and_then(|v| v.as_bool()) == Some(true) {
+            watching.push("SD card");
+        }
+        if !watching.is_empty() {
+            println!("Watching:   {}", watching.join(", "));
+        }
+
+        let violations = data
+            .get("violations_logged")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        println!("Violations: {violations}");
+
+        if let Some(ms) = data.get("last_poll_ms_ago").and_then(|v| v.as_u64()) {
+            println!("Last poll:  {ms}ms ago");
+        }
+
+        return;
+    }
+
+    // Action responses (have "message" field)
+    if let Some(msg) = data.get("message").and_then(|v| v.as_str()) {
+        println!("{msg}");
+        return;
+    }
+
+    // Fallback: pretty-print as JSON
+    if let Ok(pretty) = serde_json::to_string_pretty(data) {
+        println!("{pretty}");
     }
 }
 

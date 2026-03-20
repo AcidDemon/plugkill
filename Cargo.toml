@@ -1,6 +1,6 @@
 [package]
 name = "plugkill"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 description = "Hardware kill-switch daemon — shuts down the system when device changes are detected on USB, Thunderbolt, SD card buses, AC power removal, network link loss, or lid close"
 license = "GPL-3.0"

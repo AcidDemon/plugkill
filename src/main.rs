@@ -26,9 +26,15 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
+const BANNER: &str = concat!(
+    "Plugkill ",
+    env!("CARGO_PKG_VERSION"),
+    " ( https://github.com/AcidDemon/plugkill )"
+);
+
 /// Hardware kill-switch daemon — shuts down the system when device changes are detected.
 #[derive(Parser, Debug)]
-#[command(name = "plugkill", version, about)]
+#[command(name = "plugkill", version, about, before_help = BANNER)]
 struct Cli {
     /// Path to configuration file
     #[arg(short, long, default_value = "/etc/plugkill/config.toml")]
@@ -102,6 +108,10 @@ struct Cli {
     /// Reload daemon configuration
     #[arg(long)]
     reload: bool,
+
+    /// Output client responses as JSON instead of human-readable text
+    #[arg(long)]
+    json: bool,
 
     /// Path to the control socket
     #[arg(long, default_value = socket::DEFAULT_SOCKET_PATH)]
@@ -202,9 +212,10 @@ fn main() {
     }
 
     // Handle client commands (connect to running daemon via socket)
+    let raw_json = cli.json;
     if let Some(timeout) = cli.disarm {
         let req = serde_json::json!({"command": "disarm", "timeout_secs": timeout});
-        if let Err(e) = socket::send_command(&cli.socket, &req) {
+        if let Err(e) = socket::send_command(&cli.socket, &req, raw_json) {
             error!("{e}");
             std::process::exit(1);
         }
@@ -212,7 +223,7 @@ fn main() {
     }
     if cli.arm {
         let req = serde_json::json!({"command": "arm"});
-        if let Err(e) = socket::send_command(&cli.socket, &req) {
+        if let Err(e) = socket::send_command(&cli.socket, &req, raw_json) {
             error!("{e}");
             std::process::exit(1);
         }
@@ -220,7 +231,7 @@ fn main() {
     }
     if cli.status {
         let req = serde_json::json!({"command": "status"});
-        if let Err(e) = socket::send_command(&cli.socket, &req) {
+        if let Err(e) = socket::send_command(&cli.socket, &req, raw_json) {
             error!("{e}");
             std::process::exit(1);
         }
@@ -228,7 +239,7 @@ fn main() {
     }
     if cli.learn {
         let req = serde_json::json!({"command": "learn"});
-        if let Err(e) = socket::send_command(&cli.socket, &req) {
+        if let Err(e) = socket::send_command(&cli.socket, &req, raw_json) {
             error!("{e}");
             std::process::exit(1);
         }
@@ -236,7 +247,7 @@ fn main() {
     }
     if cli.enforce {
         let req = serde_json::json!({"command": "enforce"});
-        if let Err(e) = socket::send_command(&cli.socket, &req) {
+        if let Err(e) = socket::send_command(&cli.socket, &req, raw_json) {
             error!("{e}");
             std::process::exit(1);
         }
@@ -244,7 +255,7 @@ fn main() {
     }
     if cli.reload {
         let req = serde_json::json!({"command": "reload"});
-        if let Err(e) = socket::send_command(&cli.socket, &req) {
+        if let Err(e) = socket::send_command(&cli.socket, &req, raw_json) {
             error!("{e}");
             std::process::exit(1);
         }
