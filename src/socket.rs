@@ -213,6 +213,9 @@ fn handle_status(
         "usb_watching": cfg.general.watch_usb,
         "thunderbolt_watching": cfg.general.watch_thunderbolt,
         "sdcard_watching": cfg.general.watch_sdcard,
+        "power_watching": cfg.general.watch_power,
+        "network_watching": cfg.general.watch_network,
+        "lid_watching": cfg.general.watch_lid,
         "violations_logged": st.violations_logged,
         "last_poll_ms_ago": last_poll_ms_ago,
     }))
@@ -414,6 +417,15 @@ fn print_human_response(line: &str) {
         }
         if data.get("sdcard_watching").and_then(|v| v.as_bool()) == Some(true) {
             watching.push("SD card");
+        }
+        if data.get("power_watching").and_then(|v| v.as_bool()) == Some(true) {
+            watching.push("Power");
+        }
+        if data.get("network_watching").and_then(|v| v.as_bool()) == Some(true) {
+            watching.push("Network");
+        }
+        if data.get("lid_watching").and_then(|v| v.as_bool()) == Some(true) {
+            watching.push("Lid");
         }
         if !watching.is_empty() {
             println!("Watching:   {}", watching.join(", "));
