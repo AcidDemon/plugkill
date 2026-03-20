@@ -388,10 +388,10 @@ fn print_human_response(line: &str) {
             println!("Uptime:     {}", format_duration(secs));
         }
 
-        if let Some(secs) = data.get("disarm_remaining_secs").and_then(|v| v.as_u64()) {
-            if secs > 0 {
-                println!("Re-arms in: {}", format_duration(secs));
-            }
+        if let Some(secs) = data.get("disarm_remaining_secs").and_then(|v| v.as_u64())
+            && secs > 0
+        {
+            println!("Re-arms in: {}", format_duration(secs));
         }
 
         let usb = data
