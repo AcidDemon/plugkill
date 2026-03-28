@@ -1,0 +1,18 @@
+[package]
+name = "plugkill-gui"
+version = "0.4.1"
+edition = "2024"
+description = "System tray and settings GUI for plugkill"
+license = "GPL-3.0"
+authors = ["AcidDemon"]
+
+[[bin]]
+name = "plugkill-gui"
+path = "src/main.rs"
+
+[dependencies]
+plugkill-core = { path = "../plugkill-core" }
+ksni = { version = "0.3", features = ["blocking"] }
+serde_json = "1"
+log = "0.4"
+env_logger = "0.11"

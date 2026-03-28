@@ -1,6 +1,6 @@
-use crate::config::Config;
-use crate::error::Error;
 use log::{debug, error, info, warn};
+use plugkill_core::config::Config;
+use plugkill_core::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;

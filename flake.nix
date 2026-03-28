@@ -22,7 +22,7 @@
       in {
         packages.default = pkgs.rustPlatform.buildRustPackage {
           pname = "plugkill";
-          version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
+          version = (builtins.fromTOML (builtins.readFile ./crates/plugkill/Cargo.toml)).package.version;
 
           src = pkgs.lib.cleanSource ./.;
 

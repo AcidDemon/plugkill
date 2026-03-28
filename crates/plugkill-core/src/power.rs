@@ -1,4 +1,4 @@
-use crate::usb::read_sysfs_attr;
+use crate::sysfs::read_sysfs_attr;
 use log::warn;
 use std::fmt;
 use std::fs;

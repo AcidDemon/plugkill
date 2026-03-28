@@ -1,4 +1,5 @@
 use crate::error::Error;
+use crate::sysfs::read_sysfs_attr;
 use log::warn;
 use std::collections::HashMap;
 use std::fmt;
@@ -181,24 +182,6 @@ impl DeviceSnapshot {
 /// Validate that a string is a valid hex ID (1-4 hex chars).
 fn is_valid_hex_id(s: &str) -> bool {
     !s.is_empty() && s.len() <= 4 && s.chars().all(|c| c.is_ascii_hexdigit())
-}
-
-/// Read a sysfs attribute file, returning trimmed contents.
-/// Returns None if the file doesn't exist (normal for interfaces/hubs).
-pub(crate) fn read_sysfs_attr(path: &Path) -> Result<Option<String>, Error> {
-    match fs::read_to_string(path) {
-        Ok(contents) => Ok(Some(contents.trim().to_string())),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => Err(Error::Usb(format!(
-            "permission denied reading {}: {}",
-            path.display(),
-            e
-        ))),
-        Err(e) => {
-            warn!("unexpected error reading {}: {}", path.display(), e);
-            Ok(None)
-        }
-    }
 }
 
 /// Enumerate all currently connected USB devices by reading sysfs.

@@ -1,24 +1,18 @@
-mod config;
-mod error;
+mod daemon_state;
 mod kill;
-mod lid;
-mod network;
-mod power;
-mod sdcard;
 mod socket;
-mod state;
-mod thunderbolt;
-mod usb;
 
-use crate::config::{LidPolicy, NetworkPolicy, PowerPolicy};
-use crate::lid::LidState;
-use crate::power::PowerState;
-use crate::sdcard::{SdCardDeviceId, SdCardSnapshot};
-use crate::state::{Baselines, DaemonMode, DaemonState, DeviceNames};
-use crate::thunderbolt::{ThunderboltDeviceId, ThunderboltSnapshot};
-use crate::usb::{DeviceSnapshot, UsbDeviceId};
 use clap::Parser;
+use daemon_state::DaemonState;
 use log::{error, info, warn};
+use plugkill_core::config::{self, LidPolicy, NetworkPolicy, PowerPolicy};
+use plugkill_core::lid::{self, LidState};
+use plugkill_core::power::{self, PowerState};
+use plugkill_core::sdcard::{self, SdCardDeviceId, SdCardSnapshot};
+use plugkill_core::state::{Baselines, DaemonMode, DeviceNames};
+use plugkill_core::thunderbolt::{self, ThunderboltDeviceId, ThunderboltSnapshot};
+use plugkill_core::usb::{self, DeviceSnapshot, UsbDeviceId};
+use plugkill_core::{ipc, network};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -114,7 +108,7 @@ struct Cli {
     json: bool,
 
     /// Path to the control socket
-    #[arg(long, default_value = socket::DEFAULT_SOCKET_PATH)]
+    #[arg(long, default_value = ipc::DEFAULT_SOCKET_PATH)]
     socket: PathBuf,
 }
 
@@ -215,7 +209,7 @@ fn main() {
     let raw_json = cli.json;
     if let Some(timeout) = cli.disarm {
         let req = serde_json::json!({"command": "disarm", "timeout_secs": timeout});
-        if let Err(e) = socket::send_command(&cli.socket, &req, raw_json) {
+        if let Err(e) = ipc::send_command(&cli.socket, &req, raw_json) {
             error!("{e}");
             std::process::exit(1);
         }
@@ -223,7 +217,7 @@ fn main() {
     }
     if cli.arm {
         let req = serde_json::json!({"command": "arm"});
-        if let Err(e) = socket::send_command(&cli.socket, &req, raw_json) {
+        if let Err(e) = ipc::send_command(&cli.socket, &req, raw_json) {
             error!("{e}");
             std::process::exit(1);
         }
@@ -231,7 +225,7 @@ fn main() {
     }
     if cli.status {
         let req = serde_json::json!({"command": "status"});
-        if let Err(e) = socket::send_command(&cli.socket, &req, raw_json) {
+        if let Err(e) = ipc::send_command(&cli.socket, &req, raw_json) {
             error!("{e}");
             std::process::exit(1);
         }
@@ -239,7 +233,7 @@ fn main() {
     }
     if cli.learn {
         let req = serde_json::json!({"command": "learn"});
-        if let Err(e) = socket::send_command(&cli.socket, &req, raw_json) {
+        if let Err(e) = ipc::send_command(&cli.socket, &req, raw_json) {
             error!("{e}");
             std::process::exit(1);
         }
@@ -247,7 +241,7 @@ fn main() {
     }
     if cli.enforce {
         let req = serde_json::json!({"command": "enforce"});
-        if let Err(e) = socket::send_command(&cli.socket, &req, raw_json) {
+        if let Err(e) = ipc::send_command(&cli.socket, &req, raw_json) {
             error!("{e}");
             std::process::exit(1);
         }
@@ -255,7 +249,7 @@ fn main() {
     }
     if cli.reload {
         let req = serde_json::json!({"command": "reload"});
-        if let Err(e) = socket::send_command(&cli.socket, &req, raw_json) {
+        if let Err(e) = ipc::send_command(&cli.socket, &req, raw_json) {
             error!("{e}");
             std::process::exit(1);
         }

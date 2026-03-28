@@ -1,25 +1,7 @@
-[package]
-name = "plugkill"
-version = "0.4.1"
-edition = "2024"
-description = "Hardware kill-switch daemon — shuts down the system when device changes are detected on USB, Thunderbolt, SD card buses, AC power removal, network link loss, or lid close"
-license = "GPL-3.0"
-authors = ["plugkill contributors"]
-
-[dependencies]
-clap = { version = "4", features = ["derive"] }
-serde = { version = "1", features = ["derive"] }
-toml = "0.8"
-log = "0.4"
-env_logger = "0.11"
-nix = { version = "0.29", features = ["signal", "fs", "reboot", "user"] }
-libc = "0.2"
-signal-hook = "0.3"
-serde_json = "1"
-zbus = { version = "5", features = ["blocking"] }
-
-[dev-dependencies]
-tempfile = "3"
-assert_cmd = "2"
-predicates = "3"
-nix = { version = "0.29", features = ["user"] }
+[workspace]
+members = [
+    "crates/plugkill-core",
+    "crates/plugkill",
+    "crates/plugkill-gui",
+]
+resolver = "3"
