@@ -110,6 +110,10 @@ struct Cli {
     /// Path to the control socket
     #[arg(long, default_value = ipc::DEFAULT_SOCKET_PATH)]
     socket: PathBuf,
+
+    /// Group name for socket ownership (allows non-root GUI access)
+    #[arg(long)]
+    socket_group: Option<String>,
 }
 
 fn main() {
@@ -268,8 +272,16 @@ fn main() {
     let mut cfg = match config::load(&cli.config) {
         Ok(c) => c,
         Err(e) => {
-            error!("failed to load config: {e}");
-            std::process::exit(1);
+            if cli.dry_run && !cli.config.exists() {
+                warn!(
+                    "config {} not found, using defaults (--dry-run mode)",
+                    cli.config.display()
+                );
+                config::Config::default()
+            } else {
+                error!("failed to load config: {e}");
+                std::process::exit(1);
+            }
         }
     };
 
@@ -460,6 +472,7 @@ fn main() {
     let socket_path = cli.socket.clone();
     if let Err(e) = socket::start_socket_listener(
         socket_path.clone(),
+        cli.socket_group.as_deref(),
         Arc::clone(&daemon_state),
         Arc::clone(&config_arc),
         Arc::clone(&baselines),

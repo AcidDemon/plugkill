@@ -1,0 +1,28 @@
+[package]
+name = "plugkill-relay"
+version = "0.1.0"
+edition = "2024"
+description = "Kill signal relay mesh for plugkill — fans out authenticated shutdown signals between hosts"
+license = "GPL-3.0"
+authors = ["AcidDemon"]
+
+[[bin]]
+name = "plugkill-relay"
+path = "src/main.rs"
+
+[dependencies]
+plugkill-core = { path = "../plugkill-core" }
+clap = { version = "4", features = ["derive"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+log = "0.4"
+env_logger = "0.11"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+base64 = "0.22"
+hex = "0.4"
+signal-hook = "0.3"
+
+[dev-dependencies]
+tempfile = "3"

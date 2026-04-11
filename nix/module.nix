@@ -41,6 +41,12 @@ in
       description = "Log actions without executing them.";
     };
 
+    socketGroup = lib.mkOption {
+      type = lib.types.str;
+      default = "plugkill";
+      description = "Group that owns the control socket (members can use the GUI and CLI).";
+    };
+
     settings = lib.mkOption {
       type = tomlFormat.type;
       default = {
@@ -99,9 +105,13 @@ in
   # so that plugkill's delay inhibitor is respected by logind.
 
   config = lib.mkIf cfg.enable {
-    # Create log directory with restrictive permissions
+    # Create the plugkill group so GUI/CLI users can access the control socket
+    users.groups.${cfg.socketGroup} = {};
+
+    # Create directories with correct ownership
     systemd.tmpfiles.rules = [
       "d /var/log/plugkill 0750 root root -"
+      "d /run/plugkill 0750 root ${cfg.socketGroup} -"
     ];
 
     systemd.services.plugkill = {
@@ -114,6 +124,7 @@ in
         ExecStart = lib.concatStringsSep " " ([
           "${lib.getExe cfg.package}"
           "--config ${configFile}"
+          "--socket-group ${cfg.socketGroup}"
         ]
           ++ lib.optional cfg.learnMode "--learn-mode"
           ++ lib.optional cfg.dryRun "--dry-run");
@@ -149,7 +160,7 @@ in
         # Prefix with '-' so systemd ignores paths that don't exist on this machine
         ReadOnlyPaths = [ "-/sys/bus/usb/devices" "-/sys/bus/thunderbolt/devices" "-/sys/bus/mmc/devices" "-/sys/class/power_supply" "-/sys/class/net" "-/proc/acpi" ];
         RuntimeDirectory = "plugkill";
-        RuntimeDirectoryMode = "0755";
+        RuntimeDirectoryMode = "0750";
         ReadWritePaths = [
           "/var/log/plugkill"
           "/run/plugkill"

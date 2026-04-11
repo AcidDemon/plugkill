@@ -26,7 +26,7 @@
 
           src = pkgs.lib.cleanSource ./.;
 
-          cargoHash = "sha256-X9pqxMKEdZJ2vod8/UelqV9aoCWAoFcKFFeIiTUkVwE=";
+          cargoHash = "sha256-v5KEq5rd1Hwe1r3/PBlfQX85Gc7RMTfyuuB895w7aVw=";
 
           # Integration tests require /sys/bus/usb/devices which is unavailable in the Nix sandbox
           checkFlags = [
@@ -58,5 +58,6 @@
     )
     // {
       nixosModules.default = import ./nix/module.nix self;
+      nixosModules.relay = import ./nix/relay-module.nix self;
     };
 }

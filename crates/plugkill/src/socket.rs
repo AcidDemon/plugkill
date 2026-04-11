@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 /// and dispatches commands.
 pub fn start_socket_listener(
     socket_path: PathBuf,
+    socket_group: Option<&str>,
     state: Arc<Mutex<DaemonState>>,
     config: Arc<RwLock<Config>>,
     baselines: Arc<RwLock<Baselines>>,
@@ -31,6 +32,11 @@ pub fn start_socket_listener(
 
     // Set socket permissions: 0660 (owner + group read/write)
     set_socket_permissions(&socket_path)?;
+
+    // Set socket group ownership if requested (allows non-root GUI access)
+    if let Some(group) = socket_group {
+        set_socket_group(&socket_path, group)?;
+    }
 
     info!("control socket listening on {}", socket_path.display());
 
@@ -68,6 +74,17 @@ fn set_socket_permissions(path: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let perms = std::fs::Permissions::from_mode(0o660);
     std::fs::set_permissions(path, perms)
+}
+
+fn set_socket_group(path: &Path, group: &str) -> std::io::Result<()> {
+    let gid = nix::unistd::Group::from_name(group)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("group lookup failed: {e}")))?
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("group '{group}' not found")))?
+        .gid;
+    nix::unistd::chown(path, None, Some(gid))
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("chown failed: {e}")))?;
+    info!("socket group set to '{group}' (gid {gid})");
+    Ok(())
 }
 
 fn handle_connection(

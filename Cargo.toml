@@ -3,5 +3,6 @@ members = [
     "crates/plugkill-core",
     "crates/plugkill",
     "crates/plugkill-gui",
+    "crates/plugkill-relay",
 ]
 resolver = "3"
