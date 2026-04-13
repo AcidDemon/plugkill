@@ -116,7 +116,7 @@ in
 
     systemd.services.plugkill = {
       description = "plugkill hardware kill-switch daemon";
-      after = [ "multi-user.target" ];
+      after = [ "local-fs.target" "sysinit.target" ];
       wantedBy = [ "multi-user.target" ];
 
       serviceConfig = {
