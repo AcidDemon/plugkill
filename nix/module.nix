@@ -142,6 +142,7 @@ in
           "CAP_DAC_READ_SEARCH"   # read sysfs
           "CAP_DAC_OVERRIDE"      # write log files, shred files
           "CAP_KILL"              # kill processes during shutdown
+          "CAP_CHOWN"             # chown control socket to socketGroup
         ];
         CapabilityBoundingSet = [
           "CAP_SYS_BOOT"
@@ -149,6 +150,7 @@ in
           "CAP_DAC_READ_SEARCH"
           "CAP_DAC_OVERRIDE"
           "CAP_KILL"
+          "CAP_CHOWN"
         ];
 
         # Filesystem hardening — ProtectSystem=strict makes / read-only,
