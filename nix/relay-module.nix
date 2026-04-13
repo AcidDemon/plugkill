@@ -122,6 +122,8 @@ in
       "d /etc/plugkill-relay 0700 root root -"
     ];
 
+    environment.etc."plugkill-relay/config.toml".source = configFile;
+
     systemd.services.plugkill-relay = {
       description = "plugkill-relay kill signal mesh";
       after = [
