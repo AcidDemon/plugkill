@@ -91,9 +91,7 @@ pub fn fan_out(
         while Instant::now() < deadline {
             match socket.recv_from(&mut recv_buf) {
                 Ok((len, _src)) => {
-                    if let Some(peer_name) =
-                        check_ack(&recv_buf[..len], &nonce, &config.peers)
-                    {
+                    if let Some(peer_name) = check_ack(&recv_buf[..len], &nonce, &config.peers) {
                         if acked.insert(peer_name.clone()) {
                             info!("peer '{}' ACKed", peer_name);
                         }
@@ -128,12 +126,7 @@ pub fn fan_out(
     }
 }
 
-fn send_to_peer(
-    socket: &UdpSocket,
-    resolver: &mut Resolver,
-    peer: &PeerConfig,
-    packet: &[u8],
-) {
+fn send_to_peer(socket: &UdpSocket, resolver: &mut Resolver, peer: &PeerConfig, packet: &[u8]) {
     for addr_str in &peer.addresses {
         let addrs = resolver.resolve(addr_str);
         for addr in addrs {
@@ -173,8 +166,8 @@ fn check_ack(data: &[u8], expected_nonce: &[u8; 16], peers: &[PeerConfig]) -> Op
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base64::prelude::*;
     use crate::config::{PeerConfig, RetryConfig};
+    use base64::prelude::*;
 
     fn make_peer(name: &str, pubkey: &[u8; 32]) -> PeerConfig {
         PeerConfig {
@@ -190,14 +183,9 @@ mod tests {
         let nonce = crypto::random_nonce();
         let ack_reason = hex::encode(nonce);
 
-        let data = protocol::serialize(
-            PacketType::Ack,
-            0,
-            &nonce,
-            &pubkey,
-            &ack_reason,
-            |msg| crypto::sign(&privkey, msg),
-        );
+        let data = protocol::serialize(PacketType::Ack, 0, &nonce, &pubkey, &ack_reason, |msg| {
+            crypto::sign(&privkey, msg)
+        });
 
         let peers = vec![make_peer("alpha", &pubkey)];
         let result = check_ack(&data, &nonce, &peers);
@@ -211,14 +199,9 @@ mod tests {
         let other_nonce = crypto::random_nonce();
         let ack_reason = hex::encode(nonce);
 
-        let data = protocol::serialize(
-            PacketType::Ack,
-            0,
-            &nonce,
-            &pubkey,
-            &ack_reason,
-            |msg| crypto::sign(&privkey, msg),
-        );
+        let data = protocol::serialize(PacketType::Ack, 0, &nonce, &pubkey, &ack_reason, |msg| {
+            crypto::sign(&privkey, msg)
+        });
 
         let peers = vec![make_peer("alpha", &pubkey)];
         // check against a different nonce — must reject
@@ -231,14 +214,9 @@ mod tests {
         let (privkey, pubkey) = crypto::generate_keypair();
         let nonce = crypto::random_nonce();
 
-        let data = protocol::serialize(
-            PacketType::Kill,
-            0,
-            &nonce,
-            &pubkey,
-            "reason",
-            |msg| crypto::sign(&privkey, msg),
-        );
+        let data = protocol::serialize(PacketType::Kill, 0, &nonce, &pubkey, "reason", |msg| {
+            crypto::sign(&privkey, msg)
+        });
 
         let peers = vec![make_peer("alpha", &pubkey)];
         let result = check_ack(&data, &nonce, &peers);
@@ -252,14 +230,9 @@ mod tests {
         let nonce = crypto::random_nonce();
         let ack_reason = hex::encode(nonce);
 
-        let data = protocol::serialize(
-            PacketType::Ack,
-            0,
-            &nonce,
-            &pubkey,
-            &ack_reason,
-            |msg| crypto::sign(&privkey, msg),
-        );
+        let data = protocol::serialize(PacketType::Ack, 0, &nonce, &pubkey, &ack_reason, |msg| {
+            crypto::sign(&privkey, msg)
+        });
 
         // peer list has a different pubkey — sender is unknown
         let peers = vec![make_peer("stranger", &other_pubkey)];
@@ -273,14 +246,10 @@ mod tests {
         let nonce = crypto::random_nonce();
         let ack_reason = hex::encode(nonce);
 
-        let mut data = protocol::serialize(
-            PacketType::Ack,
-            0,
-            &nonce,
-            &pubkey,
-            &ack_reason,
-            |msg| crypto::sign(&privkey, msg),
-        );
+        let mut data =
+            protocol::serialize(PacketType::Ack, 0, &nonce, &pubkey, &ack_reason, |msg| {
+                crypto::sign(&privkey, msg)
+            });
 
         // corrupt the signature
         let last = data.len() - 1;

@@ -5,20 +5,20 @@ use crate::sender;
 use crate::trigger;
 use log::{info, warn};
 use std::net::UdpSocket;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const TIMESTAMP_WINDOW_SECS: u64 = 5;
 
-/// Run the UDP listener. Blocks until `running` is set to false.
+/// Run the UDP listener. Blocks until `shutdown` is set to true.
 /// When `dry_run` is true, KILL packets are validated and ACKed but
 /// no local kill or chain propagation is triggered.
 pub fn run(
     config: &Config,
     private_key: &[u8; 32],
     our_pubkey: &[u8; 32],
-    running: Arc<AtomicBool>,
+    shutdown: Arc<AtomicBool>,
     dry_run: bool,
 ) {
     let bind_addr = format!("0.0.0.0:{}", config.general.listen_port);
@@ -38,7 +38,7 @@ pub fn run(
     let mut nonce_cache = NonceCache::new();
     let mut recv_buf = [0u8; protocol::MAX_PACKET_SIZE];
 
-    while running.load(Ordering::Relaxed) {
+    while !shutdown.load(Ordering::Relaxed) {
         let (len, src) = match socket.recv_from(&mut recv_buf) {
             Ok(r) => r,
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,

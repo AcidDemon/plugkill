@@ -85,9 +85,13 @@ impl PeerConfig {
         let bytes = BASE64_STANDARD
             .decode(&self.pubkey)
             .map_err(|e| format!("peer '{}': invalid base64 pubkey: {e}", self.name))?;
-        bytes
-            .try_into()
-            .map_err(|v: Vec<u8>| format!("peer '{}': pubkey must be 32 bytes, got {}", self.name, v.len()))
+        bytes.try_into().map_err(|v: Vec<u8>| {
+            format!(
+                "peer '{}': pubkey must be 32 bytes, got {}",
+                self.name,
+                v.len()
+            )
+        })
     }
 }
 

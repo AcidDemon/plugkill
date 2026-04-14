@@ -121,8 +121,8 @@ impl ksni::Tray for PlugkillTray {
 
     fn icon_pixmap(&self) -> Vec<Icon> {
         let icon = match self.status {
-            DaemonStatus::Armed => make_circle_icon(0x2e, 0xcc, 0x40),       // green
-            DaemonStatus::Learning => make_circle_icon(0xf5, 0xc2, 0x11),    // yellow
+            DaemonStatus::Armed => make_circle_icon(0x2e, 0xcc, 0x40), // green
+            DaemonStatus::Learning => make_circle_icon(0xf5, 0xc2, 0x11), // yellow
             DaemonStatus::Disarmed(_) => make_circle_icon(0xe0, 0x4f, 0x5f), // red
             DaemonStatus::Disconnected => make_circle_icon(0x88, 0x88, 0x88), // grey
         };
@@ -392,24 +392,26 @@ pub fn run(socket_path: PathBuf) -> Result<(), String> {
     let poll_socket = socket_path.clone();
     std::thread::Builder::new()
         .name("status-poller".into())
-        .spawn(move || loop {
-            let new_state = poll_status(&poll_socket);
+        .spawn(move || {
+            loop {
+                let new_state = poll_status(&poll_socket);
 
-            poll_handle.update(|tray: &mut PlugkillTray| {
-                if let Some((status, violations, uptime, watching)) = new_state {
-                    tray.status = status;
-                    tray.violations = violations;
-                    tray.uptime_secs = uptime;
-                    tray.watching = watching;
-                } else {
-                    tray.status = DaemonStatus::Disconnected;
-                    tray.violations = 0;
-                    tray.uptime_secs = None;
-                    tray.watching.clear();
-                }
-            });
+                poll_handle.update(|tray: &mut PlugkillTray| {
+                    if let Some((status, violations, uptime, watching)) = new_state {
+                        tray.status = status;
+                        tray.violations = violations;
+                        tray.uptime_secs = uptime;
+                        tray.watching = watching;
+                    } else {
+                        tray.status = DaemonStatus::Disconnected;
+                        tray.violations = 0;
+                        tray.uptime_secs = None;
+                        tray.watching.clear();
+                    }
+                });
 
-            std::thread::sleep(POLL_INTERVAL);
+                std::thread::sleep(POLL_INTERVAL);
+            }
         })
         .map_err(|e| format!("failed to start poller: {e}"))?;
 

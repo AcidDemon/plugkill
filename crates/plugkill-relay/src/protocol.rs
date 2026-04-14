@@ -190,14 +190,9 @@ mod tests {
     fn test_tampered_signature_fails_verify() {
         let (privkey, pubkey) = crypto::generate_keypair();
         let nonce = crypto::random_nonce();
-        let mut data = serialize(
-            PacketType::Kill,
-            0,
-            &nonce,
-            &pubkey,
-            "test",
-            |msg| crypto::sign(&privkey, msg),
-        );
+        let mut data = serialize(PacketType::Kill, 0, &nonce, &pubkey, "test", |msg| {
+            crypto::sign(&privkey, msg)
+        });
         // flip a byte in the timestamp (covered by signature, not UTF-8 validated)
         data[6] ^= 0xFF;
         let (_, msg_bytes, sig) = deserialize(&data).unwrap();

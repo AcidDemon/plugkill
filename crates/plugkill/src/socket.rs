@@ -78,11 +78,22 @@ fn set_socket_permissions(path: &Path) -> std::io::Result<()> {
 
 fn set_socket_group(path: &Path, group: &str) -> std::io::Result<()> {
     let gid = nix::unistd::Group::from_name(group)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("group lookup failed: {e}")))?
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("group '{group}' not found")))?
+        .map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("group lookup failed: {e}"),
+            )
+        })?
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("group '{group}' not found"),
+            )
+        })?
         .gid;
-    nix::unistd::chown(path, None, Some(gid))
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("chown failed: {e}")))?;
+    nix::unistd::chown(path, None, Some(gid)).map_err(|e| {
+        std::io::Error::new(std::io::ErrorKind::Other, format!("chown failed: {e}"))
+    })?;
     info!("socket group set to '{group}' (gid {gid})");
     Ok(())
 }

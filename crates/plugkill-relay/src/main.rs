@@ -11,8 +11,8 @@ use base64::prelude::*;
 use clap::Parser;
 use log::{error, info};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -143,25 +143,25 @@ fn main() {
         cfg.general.plugkill_socket.display()
     );
 
-    let running = Arc::new(AtomicBool::new(true));
-    let running_signal = running.clone();
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let shutdown_signal = shutdown.clone();
 
-    signal_hook::flag::register(signal_hook::consts::SIGINT, running_signal.clone())
+    signal_hook::flag::register(signal_hook::consts::SIGINT, shutdown_signal.clone())
         .expect("failed to register SIGINT handler");
-    signal_hook::flag::register(signal_hook::consts::SIGTERM, running_signal)
+    signal_hook::flag::register(signal_hook::consts::SIGTERM, shutdown_signal)
         .expect("failed to register SIGTERM handler");
 
     // Start UDP listener in background thread
     let listener_cfg = cfg.clone();
     let listener_privkey = private_key;
     let listener_pubkey = our_pubkey;
-    let listener_running = running.clone();
+    let listener_shutdown = shutdown.clone();
     let listener_handle = thread::spawn(move || {
         listener::run(
             &listener_cfg,
             &listener_privkey,
             &listener_pubkey,
-            listener_running,
+            listener_shutdown,
             dry_run,
         );
     });
@@ -170,14 +170,13 @@ fn main() {
     let mut watcher = watcher::Watcher::new(&cfg.general.plugkill_socket);
     let poll_interval = Duration::from_millis(cfg.general.poll_interval_ms);
 
-    while running.load(Ordering::Relaxed) {
+    while !shutdown.load(Ordering::Relaxed) {
         if let Some(violations) = watcher.poll() {
             info!(
                 "violation detected (count: {}) — fanning out KILL to peers",
                 violations
             );
-            let result =
-                sender::fan_out(&cfg, &private_key, &our_pubkey, "local_violation", None);
+            let result = sender::fan_out(&cfg, &private_key, &our_pubkey, "local_violation", None);
             for name in &result.acked {
                 info!("  {} — ACKed", name);
             }
