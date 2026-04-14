@@ -74,11 +74,7 @@ pub fn run(
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let diff = if now > packet.timestamp {
-            now - packet.timestamp
-        } else {
-            packet.timestamp - now
-        };
+        let diff = now.abs_diff(packet.timestamp);
         if diff > TIMESTAMP_WINDOW_SECS {
             warn!(
                 "stale packet from '{}': timestamp delta {}s",

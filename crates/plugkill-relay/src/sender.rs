@@ -60,12 +60,11 @@ pub fn fan_out(
         if peer.addresses.is_empty() {
             continue;
         }
-        if let Some(exclude) = exclude_pubkey {
-            if let Ok(pk) = peer.decode_pubkey() {
-                if pk == *exclude {
-                    continue;
-                }
-            }
+        if let Some(exclude) = exclude_pubkey
+            && let Ok(pk) = peer.decode_pubkey()
+            && pk == *exclude
+        {
+            continue;
         }
         pending_peers.insert(peer.name.clone(), peer);
     }
@@ -91,10 +90,10 @@ pub fn fan_out(
         while Instant::now() < deadline {
             match socket.recv_from(&mut recv_buf) {
                 Ok((len, _src)) => {
-                    if let Some(peer_name) = check_ack(&recv_buf[..len], &nonce, &config.peers) {
-                        if acked.insert(peer_name.clone()) {
-                            info!("peer '{}' ACKed", peer_name);
-                        }
+                    if let Some(peer_name) = check_ack(&recv_buf[..len], &nonce, &config.peers)
+                        && acked.insert(peer_name.clone())
+                    {
+                        info!("peer '{}' ACKed", peer_name);
                     }
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {

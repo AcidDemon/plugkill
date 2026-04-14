@@ -84,6 +84,10 @@ impl SdCardSnapshot {
         self.devices.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.devices.is_empty()
+    }
+
     /// Check current snapshot against a baseline + whitelist.
     /// Returns None if no unauthorized changes, Some(change) if violation detected.
     pub fn detect_changes(

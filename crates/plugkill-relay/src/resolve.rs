@@ -24,10 +24,10 @@ impl Resolver {
     pub fn resolve(&mut self, address: &str) -> Vec<SocketAddr> {
         let now = Instant::now();
 
-        if let Some(entry) = self.cache.get(address) {
-            if now < entry.expires {
-                return entry.addrs.clone();
-            }
+        if let Some(entry) = self.cache.get(address)
+            && now < entry.expires
+        {
+            return entry.addrs.clone();
         }
 
         let addrs: Vec<SocketAddr> = match address.to_socket_addrs() {
