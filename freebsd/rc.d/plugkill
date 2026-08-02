@@ -1,0 +1,31 @@
+#!/bin/sh
+#
+# PROVIDE: plugkill
+# REQUIRE: LOGIN FILESYSTEMS
+# KEYWORD: shutdown
+#
+# rc.conf(5) knobs:
+#   plugkill_enable  (bool):   Set to YES to enable the daemon.
+#   plugkill_config  (path):   Config file. Default: /usr/local/etc/plugkill/config.toml
+#   plugkill_flags   (str):    Extra flags, e.g. "--learn-mode" or "--dry-run".
+#
+# plugkill runs in the foreground and must be root; daemon(8) backgrounds it
+# and restarts it if it exits (the systemd Restart=on-failure equivalent).
+
+. /etc/rc.subr
+
+name="plugkill"
+rcvar="plugkill_enable"
+
+load_rc_config $name
+
+: ${plugkill_enable:="NO"}
+: ${plugkill_config:="/usr/local/etc/plugkill/config.toml"}
+: ${plugkill_flags:=""}
+
+pidfile="/var/run/${name}.pid"
+procname="/usr/local/bin/plugkill"
+command="/usr/sbin/daemon"
+command_args="-P ${pidfile} -r -t ${name} ${procname} --config ${plugkill_config} ${plugkill_flags}"
+
+run_rc_command "$1"

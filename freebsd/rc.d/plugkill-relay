@@ -1,0 +1,28 @@
+#!/bin/sh
+#
+# PROVIDE: plugkill_relay
+# REQUIRE: plugkill NETWORKING
+# KEYWORD: shutdown
+#
+# rc.conf(5) knobs:
+#   plugkill_relay_enable  (bool):  Set to YES to enable the relay.
+#   plugkill_relay_config  (path):  Config. Default: /usr/local/etc/plugkill-relay/config.toml
+#   plugkill_relay_flags   (str):   Extra flags, e.g. "--dry-run".
+
+. /etc/rc.subr
+
+name="plugkill_relay"
+rcvar="plugkill_relay_enable"
+
+load_rc_config $name
+
+: ${plugkill_relay_enable:="NO"}
+: ${plugkill_relay_config:="/usr/local/etc/plugkill-relay/config.toml"}
+: ${plugkill_relay_flags:=""}
+
+pidfile="/var/run/${name}.pid"
+procname="/usr/local/bin/plugkill-relay"
+command="/usr/sbin/daemon"
+command_args="-P ${pidfile} -r -t ${name} ${procname} --config ${plugkill_relay_config} ${plugkill_relay_flags}"
+
+run_rc_command "$1"
