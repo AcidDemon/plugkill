@@ -198,9 +198,15 @@ fn handle_status(
     config: &Arc<RwLock<Config>>,
     baselines: &Arc<RwLock<Baselines>>,
 ) -> Response {
-    let st = state.lock().unwrap();
+    // Global lock order is config, then baselines, then state. Every other
+    // site takes them this way: the poll loop holds config and baselines while
+    // `capture_baselines` locks state inside its power, network and lid
+    // branches. Acquiring state first here deadlocks that capture against a
+    // relay `status` poll, which leaves the poll thread holding the baselines
+    // write guard while systemd still sees a healthy process. Keep this order.
     let cfg = config.read().unwrap();
     let bl = baselines.read().unwrap();
+    let st = state.lock().unwrap();
 
     let uptime_secs = st.started_at.elapsed().as_secs();
     let disarm_remaining_secs = st.disarm_until.map(|deadline| {
