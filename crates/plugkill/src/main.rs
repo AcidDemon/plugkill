@@ -521,13 +521,9 @@ fn main() {
         warn!("failed to start control socket: {e} (continuing without socket)");
     }
 
-    let sleep_duration = {
-        let cfg = config_arc.read().unwrap();
-        Duration::from_millis(cfg.general.sleep_ms)
-    };
     info!(
         "patrolling every {}ms (dry_run={}, mode={})",
-        sleep_duration.as_millis(),
+        config_arc.read().unwrap().general.sleep_ms,
         config_arc.read().unwrap().general.dry_run,
         initial_mode,
     );
@@ -557,61 +553,7 @@ fn main() {
             let cfg = config_arc.read().unwrap();
             let mut bl = baselines.write().unwrap();
             info!("re-capturing baselines after re-arm");
-
-            if cfg.general.watch_usb {
-                let (snapshot, names) = capture_usb_baseline();
-                bl.usb = Some(snapshot);
-                bl.names.usb = names;
-            }
-            if cfg.general.watch_thunderbolt {
-                let (snapshot, names) = capture_thunderbolt_baseline(&cfg);
-                bl.thunderbolt = snapshot;
-                bl.names.thunderbolt = names;
-            }
-            if cfg.general.watch_sdcard {
-                let (snapshot, names) = capture_sdcard_baseline(&cfg);
-                bl.sdcard = snapshot;
-                bl.names.sdcard = names;
-            }
-            if cfg.general.watch_power {
-                let state = power::read_power_state();
-                info!("power re-baseline: {state}");
-                bl.power = Some(state);
-                // Reset power trigger state on re-baseline
-                let mut st = daemon_state.lock().unwrap();
-                st.power_unplug_at = None;
-                st.power_trigger_once_fired = false;
-            }
-            if cfg.general.watch_network {
-                let snapshot = network::enumerate_interfaces(&cfg.network.interfaces);
-                info!(
-                    "network re-baseline: {} interface(s)",
-                    snapshot.interfaces().len()
-                );
-                bl.network = Some(snapshot);
-                let mut st = daemon_state.lock().unwrap();
-                st.network_link_down_at = None;
-            }
-            if cfg.general.watch_lid {
-                let state = lid::read_lid_state();
-                info!("lid re-baseline: {state}");
-                bl.lid = Some(state);
-                let mut st = daemon_state.lock().unwrap();
-                st.lid_close_at = None;
-            }
-            if cfg.general.watch_pci {
-                match pci::enumerate_pci(&cfg.pci.ignore) {
-                    Ok(snapshot) => {
-                        info!("PCI re-baseline: {} device(s)", snapshot.len());
-                        bl.pci = Some(snapshot);
-                    }
-                    Err(e) => warn!("PCI re-baseline failed: {e}"),
-                }
-            }
-            if cfg.general.watch_display {
-                bl.display = Some(display::display_generation(&cfg.display.ignore));
-                info!("display re-baseline captured");
-            }
+            capture_baselines(&cfg, &mut bl, &daemon_state, false);
         }
 
         // Handle config reload
@@ -654,6 +596,14 @@ fn main() {
 
                         *config_arc.write().unwrap() = new_cfg;
                         info!("configuration reloaded successfully");
+
+                        // A bus this reload switched on has no baseline yet and
+                        // its checker short-circuits on None. Buses that already
+                        // have one keep it: re-baselining an armed bus would
+                        // accept whatever was plugged in since.
+                        let cfg = config_arc.read().unwrap();
+                        let mut bl = baselines.write().unwrap();
+                        capture_baselines(&cfg, &mut bl, &daemon_state, true);
                     }
                     Err(e) => {
                         error!("config reload failed: {e}");
@@ -661,6 +611,10 @@ fn main() {
                 }
             }
         }
+
+        // Re-read every iteration so a reloaded general.sleep_ms takes effect
+        // without a restart. Both sleep sites below are after this point.
+        let sleep_duration = Duration::from_millis(config_arc.read().unwrap().general.sleep_ms);
 
         // Drain a socket-requested kill (relay peer) and read armed state under
         // one lock.
@@ -1234,6 +1188,75 @@ fn capture_sdcard_baseline(
     }
 }
 
+/// Capture baselines for the enabled buses, replacing whatever is there.
+///
+/// `only_missing` skips a bus that already has a baseline, which is what a
+/// config reload needs: a bus switched on at runtime has no baseline and the
+/// per-bus checkers short-circuit on `None`, while a bus that was already
+/// armed must keep the baseline it was armed against. With `only_missing`
+/// false every enabled bus is re-captured, which is what a re-arm needs.
+fn capture_baselines(
+    cfg: &config::Config,
+    bl: &mut Baselines,
+    daemon_state: &Arc<Mutex<DaemonState>>,
+    only_missing: bool,
+) {
+    if cfg.general.watch_usb && !(only_missing && bl.usb.is_some()) {
+        let (snapshot, names) = capture_usb_baseline();
+        bl.usb = Some(snapshot);
+        bl.names.usb = names;
+    }
+    if cfg.general.watch_thunderbolt && !(only_missing && bl.thunderbolt.is_some()) {
+        let (snapshot, names) = capture_thunderbolt_baseline(cfg);
+        bl.thunderbolt = snapshot;
+        bl.names.thunderbolt = names;
+    }
+    if cfg.general.watch_sdcard && !(only_missing && bl.sdcard.is_some()) {
+        let (snapshot, names) = capture_sdcard_baseline(cfg);
+        bl.sdcard = snapshot;
+        bl.names.sdcard = names;
+    }
+    if cfg.general.watch_power && !(only_missing && bl.power.is_some()) {
+        let state = power::read_power_state();
+        info!("power re-baseline: {state}");
+        bl.power = Some(state);
+        // Reset power trigger state on re-baseline
+        let mut st = daemon_state.lock().unwrap();
+        st.power_unplug_at = None;
+        st.power_trigger_once_fired = false;
+    }
+    if cfg.general.watch_network && !(only_missing && bl.network.is_some()) {
+        let snapshot = network::enumerate_interfaces(&cfg.network.interfaces);
+        info!(
+            "network re-baseline: {} interface(s)",
+            snapshot.interfaces().len()
+        );
+        bl.network = Some(snapshot);
+        let mut st = daemon_state.lock().unwrap();
+        st.network_link_down_at = None;
+    }
+    if cfg.general.watch_lid && !(only_missing && bl.lid.is_some()) {
+        let state = lid::read_lid_state();
+        info!("lid re-baseline: {state}");
+        bl.lid = Some(state);
+        let mut st = daemon_state.lock().unwrap();
+        st.lid_close_at = None;
+    }
+    if cfg.general.watch_pci && !(only_missing && bl.pci.is_some()) {
+        match pci::enumerate_pci(&cfg.pci.ignore) {
+            Ok(snapshot) => {
+                info!("PCI re-baseline: {} device(s)", snapshot.len());
+                bl.pci = Some(snapshot);
+            }
+            Err(e) => warn!("PCI re-baseline failed: {e}"),
+        }
+    }
+    if cfg.general.watch_display && !(only_missing && bl.display.is_some()) {
+        bl.display = Some(display::display_generation(&cfg.display.ignore));
+        info!("display re-baseline captured");
+    }
+}
+
 /// Build a DeviceSnapshot from the USB whitelist config entries.
 fn build_usb_whitelist(cfg: &config::Config) -> DeviceSnapshot {
     let mut map = HashMap::new();
@@ -1271,4 +1294,83 @@ fn build_sdcard_whitelist(cfg: &config::Config) -> SdCardSnapshot {
             })
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Only the display bus is on. Display is the one bus a unit test can
+    /// drive: `display_generation` hashes whatever sysfs offers and cannot
+    /// fail, while `capture_usb_baseline` calls `process::exit(1)` when
+    /// enumeration fails, which would take the test harness with it.
+    /// `Config::default()` already leaves power/network/lid/pci/display off
+    /// and usb/thunderbolt/sdcard on, so only four flags need setting.
+    fn display_only_config() -> config::Config {
+        let mut cfg = config::Config::default();
+        cfg.general.watch_usb = false;
+        cfg.general.watch_thunderbolt = false;
+        cfg.general.watch_sdcard = false;
+        cfg.general.watch_display = true;
+        cfg
+    }
+
+    fn empty_baselines() -> Baselines {
+        Baselines {
+            usb: None,
+            thunderbolt: None,
+            sdcard: None,
+            power: None,
+            network: None,
+            lid: None,
+            pci: None,
+            display: None,
+            names: DeviceNames::default(),
+        }
+    }
+
+    #[test]
+    fn test_reload_baselines_newly_enabled_bus() {
+        let cfg = display_only_config();
+        let state = Arc::new(Mutex::new(DaemonState::new(DaemonMode::Enforce)));
+        let mut bl = empty_baselines();
+
+        capture_baselines(&cfg, &mut bl, &state, true);
+
+        assert!(
+            bl.display.is_some(),
+            "a bus enabled by reload must get a baseline, or its checker stays short-circuited"
+        );
+        assert!(bl.usb.is_none(), "a disabled bus must stay unbaselined");
+    }
+
+    #[test]
+    fn test_reload_keeps_existing_baseline() {
+        let cfg = display_only_config();
+        let state = Arc::new(Mutex::new(DaemonState::new(DaemonMode::Enforce)));
+        let mut bl = empty_baselines();
+        bl.display = Some(0xdead_beef);
+
+        capture_baselines(&cfg, &mut bl, &state, true);
+
+        assert_eq!(
+            bl.display,
+            Some(0xdead_beef),
+            "reload must not re-baseline a bus that was already armed"
+        );
+    }
+
+    #[test]
+    fn test_rearm_replaces_existing_baseline() {
+        let cfg = display_only_config();
+        let state = Arc::new(Mutex::new(DaemonState::new(DaemonMode::Enforce)));
+        let mut bl = empty_baselines();
+        // No real generation token is u64::MAX: on Linux it is a DefaultHasher
+        // digest of a connector list, on FreeBSD a small event counter.
+        bl.display = Some(u64::MAX);
+
+        capture_baselines(&cfg, &mut bl, &state, false);
+
+        assert_ne!(bl.display, Some(u64::MAX));
+    }
 }
