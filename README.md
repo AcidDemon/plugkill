@@ -423,11 +423,11 @@ plugkill reads lid state from devd's event socket (`/var/run/devd.pipe`), which 
 3. If any unauthorized change is detected:
    - In **enforce mode**: the kill sequence fires (mask signals, shred files, run commands, sync, wipe swap, self-destruct, power off)
    - In **learn mode**: the violation is logged and counted, but no action is taken
-4. Once a bus has a baseline, plugkill treats USB, Thunderbolt, or SD card enumeration failure as tampering. PCI enumeration failure only logs a warning. A baseline that fails to capture is a separate case: a USB failure at startup exits, while a USB failure on reload or re-arm and any Thunderbolt, SD card, or PCI failure logs a warning and leaves that bus unmonitored until the next re-baseline (`--arm`, disarm timeout expiry, or `--reload`), with `--status` still reporting the bus as watched because that field reads the config flag
+4. Once a bus has a baseline, plugkill treats USB, Thunderbolt, or SD card enumeration failure as tampering. PCI enumeration failure only logs a warning. A baseline that fails to capture is a separate case: a USB failure at startup exits, while a USB failure on reload or re-arm, and a Thunderbolt, SD card, or PCI failure on a bus that is present, log a warning and leave that bus unmonitored until the next re-baseline (`--arm`, disarm timeout expiry, or `--reload`), with `--status` still reporting the bus as watched because that field reads the config flag
 5. Power monitoring (if enabled) tracks AC/battery transitions with configurable grace periods and optional session lock detection via D-Bus logind
 6. Network monitoring (if enabled) detects link-down transitions on physical NICs via sysfs operstate
 7. Lid monitoring (if enabled) detects lid close via D-Bus logind (with procfs fallback) and acquires a sleep inhibitor to act before suspend
-8. Buses that lack hardware (no Thunderbolt controller, no MMC bus) are skipped with a warning naming the bus
+8. Buses whose hardware is absent (no Thunderbolt controller, no MMC bus) are skipped with an info line naming the bus, not a warning: missing hardware is not a failure
 
 ## Origin
 

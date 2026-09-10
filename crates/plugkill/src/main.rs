@@ -1186,6 +1186,32 @@ fn capture_usb_baseline() -> Option<(DeviceSnapshot, UsbNames)> {
     Some((snapshot, names))
 }
 
+/// Whether the bus root directory exists, which is what separates absent
+/// hardware from a bus that is present but unreadable. The enumeration errors
+/// cannot answer this: `Error::Thunderbolt` and `Error::SdCard` format the
+/// `io::Error` into a string, so the `ErrorKind` is gone by the time a caller
+/// sees it.
+///
+/// Takes the bus directory rather than its `devices` child on purpose: a bus
+/// that exists with an unreadable `devices` child is present-but-unreadable,
+/// not absent.
+///
+/// Linux only. FreeBSD enumerates through devinfo rather than a filesystem
+/// path, so there is nothing to stat, and non-Linux answers true. That routes
+/// every failure to the warn branch, which is the safe direction: it
+/// over-reports rather than hiding a bus that is present and unreadable.
+fn bus_root_exists(sysfs_bus_root: &str) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        std::path::Path::new(sysfs_bus_root).exists()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = sysfs_bus_root;
+        true
+    }
+}
+
 /// Capture Thunderbolt baseline, returning None if hardware not present.
 /// Also returns a name lookup map from detailed enumeration.
 fn capture_thunderbolt_baseline(
@@ -1215,11 +1241,18 @@ fn capture_thunderbolt_baseline(
             (Some(snapshot), names)
         }
         Err(e) => {
-            // Never silent: the baseline stays None, the checker short-circuits
-            // on None forever, and --status still reports thunderbolt_watching
-            // from the config flag, so without this line the bus is
-            // unmonitored behind a positive watching indicator.
-            warn!("Thunderbolt baseline failed, monitoring disabled: {e}");
+            // A present bus that will not enumerate is never silent: the
+            // baseline stays None, the checker short-circuits on None forever,
+            // and --status still reports thunderbolt_watching from the config
+            // flag, so without this line the bus is unmonitored behind a
+            // positive watching indicator. Absent hardware is not that case
+            // and does not get a warning, or the line that matters drowns in
+            // one printed on every machine without a controller.
+            if bus_root_exists("/sys/bus/thunderbolt") {
+                warn!("Thunderbolt baseline failed, monitoring disabled: {e}");
+            } else {
+                info!("no Thunderbolt hardware found, Thunderbolt monitoring inactive");
+            }
             if !cfg.thunderbolt_whitelist.devices.is_empty() {
                 warn!("thunderbolt_whitelist configured but no thunderbolt hardware found");
             }
@@ -1258,7 +1291,11 @@ fn capture_sdcard_baseline(
         }
         Err(e) => {
             // Same reasoning as the Thunderbolt arm above.
-            warn!("SD card baseline failed, monitoring disabled: {e}");
+            if bus_root_exists("/sys/bus/mmc") {
+                warn!("SD card baseline failed, monitoring disabled: {e}");
+            } else {
+                info!("no MMC bus found, SD card monitoring inactive");
+            }
             if !cfg.sdcard_whitelist.devices.is_empty() {
                 warn!("sdcard_whitelist configured but no MMC bus found");
             }
@@ -1551,6 +1588,32 @@ mod tests {
     #[test]
     fn test_armed_poll_without_a_remote_kill_runs_the_checks() {
         assert_eq!(poll_action(None, true), PollAction::Check);
+    }
+
+    /// The absent-hardware and present-but-unreadable branches are chosen by
+    /// `bus_root_exists`, so it has to actually stat the path. Degraded to a
+    /// constant it fails silently in one direction or the other: always true
+    /// puts every machine without a Thunderbolt controller back to warning
+    /// about hardware it never had, always false sends a present bus that will
+    /// not enumerate back to being silently unmonitored. Asserting which log
+    /// line fires would need a capturing logger, which is not worth a
+    /// dependency for two lines.
+    ///
+    /// Linux only: the non-Linux arm answers true by design.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_bus_root_exists_distinguishes_absent_from_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let absent = dir.path().join("no-such-bus");
+
+        assert!(
+            bus_root_exists(dir.path().to_str().unwrap()),
+            "an existing bus root must read as present, or absent hardware swallows a real failure"
+        );
+        assert!(
+            !bus_root_exists(absent.to_str().unwrap()),
+            "a missing bus root must read as absent, or every machine without the hardware warns"
+        );
     }
 
     #[test]
