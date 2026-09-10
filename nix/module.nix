@@ -21,7 +21,7 @@ let
 in
 {
   options.services.plugkill = {
-    enable = lib.mkEnableOption "plugkill, a hardware kill-switch daemon that shuts down the system on device changes (USB, Thunderbolt, SD card, power, network, lid)";
+    enable = lib.mkEnableOption "plugkill, a hardware kill-switch daemon that shuts down the system on hardware changes (USB, Thunderbolt, SD, PCI, power, network, lid, display)";
 
     package = lib.mkOption {
       type = lib.types.package;

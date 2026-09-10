@@ -14,6 +14,29 @@ fn write_config(content: &str) -> (TempDir, std::path::PathBuf) {
     (dir, path)
 }
 
+/// Helper: sorted key names of one TOML section of a config listing.
+/// Comment lines and blank lines are skipped; a `[section]` line switches sections.
+fn section_keys(text: &str, section: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut inside = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            inside = trimmed == section;
+            continue;
+        }
+        if !inside || trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let Some((key, _)) = trimmed.split_once('=') else {
+            continue;
+        };
+        keys.push(key.trim().to_string());
+    }
+    keys.sort();
+    keys
+}
+
 #[test]
 fn test_cli_help() {
     Command::cargo_bin("plugkill")
@@ -247,4 +270,26 @@ fn test_client_error_stderr_has_error_prefix() {
         .assert()
         .failure()
         .stderr(predicates::str::starts_with("Error: cannot connect"));
+}
+
+// --- Docs match the code ---
+
+#[test]
+fn test_readme_general_block_matches_default_config() {
+    let output = Command::cargo_bin("plugkill")
+        .unwrap()
+        .arg("--default-config")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let emitted = String::from_utf8(output.stdout).unwrap();
+
+    let readme_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../README.md");
+    let readme = fs::read_to_string(&readme_path).unwrap();
+
+    assert_eq!(
+        section_keys(&readme, "[general]"),
+        section_keys(&emitted, "[general]"),
+        "README [general] block and --default-config disagree"
+    );
 }

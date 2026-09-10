@@ -19,7 +19,7 @@ plugkill continuously polls your hardware buses. The moment a device is added, r
 - **Display monitoring**: detect external HDMI/DisplayPort connect or disconnect (a laptop yanked from a dock/projector, or a rogue capture device attached), with a connector ignore list
 - **Learning mode**: log violations without triggering the kill sequence; switch at runtime via socket
 - **Runtime control socket**: disarm/arm, switch modes, reload config, query status over a Unix domain socket
-- **Config hot-reload**: change whitelists or settings without restarting the daemon
+- **Config hot-reload**: re-read the config file over the control socket without restarting the daemon (see [config reload behavior](#config-reload-behavior))
 - **Secure destruction**: multi-pass file shredding, swap wiping, binary self-destruct
 - **Hardened systemd integration**: ships with a NixOS module, plus a reference unit file for other distros
 
@@ -84,6 +84,8 @@ sudo plugkill --learn-mode
 
 Like dry-run but for the violation logic only: the daemon runs normally, logs every violation it would have acted on, but never fires the kill sequence. Useful for validating your whitelist in production before switching to enforce.
 
+Learn mode covers locally detected violations only. The daemon logs a signature-verified `kill` from a relay peer and then refuses it, and the relay answers a refusal by powering the machine off itself, so learn mode is not a safe audit mode for a node inside a relay mesh.
+
 ### 6. Run for real
 
 ```bash
@@ -97,7 +99,8 @@ Or via systemd (see below).
 While the daemon is running, you can control it from another terminal using the same binary:
 
 ```bash
-sudo plugkill --status              # JSON status: armed, mode, uptime, device counts, etc.
+sudo plugkill --status               # human-readable status: armed, mode, uptime, device counts
+sudo plugkill --status --json        # the same status as JSON
 sudo plugkill --disarm 300           # disarm for 5 minutes (mandatory timeout, max 1 hour)
 sudo plugkill --arm                  # re-arm immediately; re-captures baselines
 sudo plugkill --learn                # switch to learning mode at runtime
@@ -111,10 +114,33 @@ These commands connect to the daemon's Unix socket at `/run/plugkill/plugkill.so
 echo '{"command":"status"}' | sudo socat - UNIX-CONNECT:/run/plugkill/plugkill.sock
 ```
 
+`kill`, the command the relay sends, is the one command the daemon restricts by caller. It reads the peer's uid off the socket and refuses `kill` unless it is 0, so only root can fire the kill sequence this way. Every other command stays reachable to any user who can open the socket, which is how members of the socket group use the GUI and CLI.
+
 ### Disarm / arm behavior
 
 - **Disarm requires a timeout**: there is no indefinite disarm. Maximum is 3600 seconds (1 hour).
 - **On re-arm** (timeout expiry or manual `--arm`), baselines are re-captured from whatever devices are currently connected.
+
+### Config reload behavior
+
+`--reload` makes the daemon re-read the config file from the path it started with, re-check the file's ownership and permissions, and validate it. If any of those fail, the daemon logs the error and keeps running on the config it already has.
+
+A reload applies:
+
+- `general.sleep_ms`, from the next poll onward
+- `general.log_file`, used by the next kill event
+- The three whitelist sections, from the next poll onward
+- The `watch_*` switches. A bus you turn off stops being checked, and a bus you turn on gets a baseline captured during the reload
+- The `[power]`, `[network]`, `[lid]`, `[pci]` and `[display]` sections, from the next poll onward
+- The `[destruction]` and `[commands]` sections, read when a kill fires
+
+A reload does not:
+
+- Re-capture baselines for buses that were already being watched. Use `--arm` for that
+- Re-capture the baseline that `network.interfaces`, `pci.ignore` or `display.ignore` is compared against, so narrowing one of those filters can read as a device change on the next poll. Follow such a change with `--arm`
+- Undo CLI flags. `--dry-run` and the `--no-*` flags keep overriding the file for the life of the process
+- Acquire the logind sleep inhibitor. Lid monitoring switched on by a reload still sees the lid close, but plugkill only takes the inhibitor at startup, so restart the daemon if you need it to act before suspend
+- Change the control socket path, which comes from `--socket` and has no config key
 
 ## Configuration
 
@@ -130,6 +156,8 @@ watch_sdcard = true                               # monitor SD/MMC bus
 watch_power = false                               # monitor AC power supply (opt-in)
 watch_network = false                             # monitor network link state (opt-in)
 watch_lid = false                                 # monitor laptop lid close (opt-in)
+watch_pci = false                                 # monitor PCI bus (opt-in)
+watch_display = false                             # monitor external displays (opt-in)
 
 [whitelist]
 devices = [
@@ -159,6 +187,14 @@ devices = [
 [lid]
 # policy = "monitor"             # "kill" or "monitor"
 # grace_secs = 0                 # seconds to wait before triggering (0-300)
+
+[pci]
+# policy = "monitor"             # "kill" or "monitor"
+# ignore = []                    # selectors to ignore, e.g. "0000:01:00.0"
+
+[display]
+# policy = "monitor"             # "kill" or "monitor"
+# ignore = []                    # connectors to ignore, e.g. "eDP" (no effect on FreeBSD)
 
 [destruction]
 files_to_remove = []             # files to securely shred (3-pass random overwrite)
@@ -199,14 +235,16 @@ Daemon options:
       --no-pci              Disable PCI bus monitoring
       --no-display          Disable external display monitoring
       --socket <PATH>       Control socket path [default: /run/plugkill/plugkill.sock]
+      --socket-group <NAME> Group name for socket ownership (allows non-root GUI access)
 
 Client commands (connect to running daemon):
-      --status              Query daemon status (JSON)
+      --status              Query daemon status
       --disarm <SECONDS>    Disarm for N seconds (1-3600)
       --arm                 Re-arm and re-capture baselines
       --learn               Switch to learning mode
       --enforce             Switch to enforce mode
       --reload              Hot-reload configuration
+      --json                Output client responses as JSON instead of human-readable text
 
 Utility (no root required):
       --default-config      Print default configuration and exit
@@ -216,6 +254,8 @@ Utility (no root required):
   -h, --help                Print help
   -V, --version             Print version
 ```
+
+The NixOS module always passes `--socket-group`, set from `services.plugkill.socketGroup` (default `plugkill`), so members of that group can use the control socket without root.
 
 ## Installation
 
@@ -381,7 +421,7 @@ plugkill reads lid state from devd's event socket (`/var/run/devd.pipe`), which 
 3. If any unauthorized change is detected:
    - In **enforce mode**: the kill sequence fires (mask signals, shred files, run commands, sync, wipe swap, self-destruct, power off)
    - In **learn mode**: the violation is logged and counted, but no action is taken
-4. If device enumeration itself fails, this is treated as tampering
+4. If USB, Thunderbolt, or SD card enumeration fails, this is treated as tampering. PCI enumeration failure only logs a warning, and a PCI baseline that fails at startup leaves PCI monitoring off until the next re-baseline (`--arm`, disarm timeout expiry, or `--reload`)
 5. Power monitoring (if enabled) tracks AC/battery transitions with configurable grace periods and optional session lock detection via D-Bus logind
 6. Network monitoring (if enabled) detects link-down transitions on physical NICs via sysfs operstate
 7. Lid monitoring (if enabled) detects lid close via D-Bus logind (with procfs fallback) and acquires a sleep inhibitor to act before suspend

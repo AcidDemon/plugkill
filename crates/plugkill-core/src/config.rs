@@ -723,9 +723,9 @@ watch_power = false
 watch_network = false
 # Lid close monitoring (opt-in, disabled by default)
 watch_lid = false
-# PCI device add/remove monitoring (opt-in; catches Thunderbolt PCIe tunnels)
+# PCI device add/remove monitoring (opt-in, disabled by default; catches Thunderbolt PCIe tunnels)
 watch_pci = false
-# External display connect/disconnect monitoring (opt-in)
+# External display connect/disconnect monitoring (opt-in, disabled by default)
 watch_display = false
 
 [whitelist]

@@ -23,7 +23,7 @@ let
     peers = map (p: {
       inherit (p) name pubkey addresses;
     }) cfg.peers;
-  } // cfg.extraSettings;
+  };
 
   configFile = tomlFormat.generate "plugkill-relay-config.toml" relayConfig;
   defaultPackage = flake.packages.${pkgs.stdenv.hostPlatform.system}.default;
@@ -101,12 +101,6 @@ in
       });
       default = [ ];
       description = "Peer nodes to relay kill signals to.";
-    };
-
-    extraSettings = mkOption {
-      type = types.attrs;
-      default = { };
-      description = "Additional TOML config merged into the generated config.";
     };
   };
 
