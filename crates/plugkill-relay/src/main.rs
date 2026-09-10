@@ -143,12 +143,13 @@ fn main() {
     );
 
     let shutdown = Arc::new(AtomicBool::new(false));
-    let shutdown_signal = shutdown.clone();
 
-    signal_hook::flag::register(signal_hook::consts::SIGINT, shutdown_signal.clone())
-        .expect("failed to register SIGINT handler");
-    signal_hook::flag::register(signal_hook::consts::SIGTERM, shutdown_signal)
-        .expect("failed to register SIGTERM handler");
+    for &sig in &[signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
+        if let Err(e) = signal_hook::flag::register(sig, shutdown.clone()) {
+            error!("failed to register signal handler for {sig}: {e}");
+            std::process::exit(1);
+        }
+    }
 
     // Start UDP listener in background thread
     let listener_cfg = cfg.clone();
