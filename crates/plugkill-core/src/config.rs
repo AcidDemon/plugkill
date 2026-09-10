@@ -180,6 +180,16 @@ pub enum PowerPolicy {
     Monitor,
 }
 
+impl std::fmt::Display for PowerPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PowerPolicy::TriggerOnce => write!(f, "trigger-once"),
+            PowerPolicy::AcRequired => write!(f, "ac-required"),
+            PowerPolicy::Monitor => write!(f, "monitor"),
+        }
+    }
+}
+
 fn default_power_policy() -> PowerPolicy {
     PowerPolicy::Monitor
 }
@@ -212,6 +222,15 @@ pub enum NetworkPolicy {
     Kill,
     /// Log link changes but never treat them as violations.
     Monitor,
+}
+
+impl std::fmt::Display for NetworkPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NetworkPolicy::Kill => write!(f, "kill"),
+            NetworkPolicy::Monitor => write!(f, "monitor"),
+        }
+    }
 }
 
 fn default_network_policy() -> NetworkPolicy {
@@ -248,6 +267,15 @@ pub enum LidPolicy {
     Monitor,
 }
 
+impl std::fmt::Display for LidPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LidPolicy::Kill => write!(f, "kill"),
+            LidPolicy::Monitor => write!(f, "monitor"),
+        }
+    }
+}
+
 fn default_lid_policy() -> LidPolicy {
     LidPolicy::Monitor
 }
@@ -277,6 +305,15 @@ pub enum PciPolicy {
     Kill,
     /// Log PCI changes but never treat them as violations.
     Monitor,
+}
+
+impl std::fmt::Display for PciPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PciPolicy::Kill => write!(f, "kill"),
+            PciPolicy::Monitor => write!(f, "monitor"),
+        }
+    }
 }
 
 fn default_pci_policy() -> PciPolicy {
@@ -311,6 +348,15 @@ pub enum DisplayPolicy {
     Kill,
     /// Log display changes but never treat them as violations.
     Monitor,
+}
+
+impl std::fmt::Display for DisplayPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DisplayPolicy::Kill => write!(f, "kill"),
+            DisplayPolicy::Monitor => write!(f, "monitor"),
+        }
+    }
 }
 
 fn default_display_policy() -> DisplayPolicy {
@@ -1151,5 +1197,72 @@ require_locked = true
         assert!(config.general.watch_usb);
         assert!(config.general.watch_thunderbolt);
         assert!(config.general.watch_sdcard);
+    }
+
+    /// `Display` must emit exactly the name the TOML parser accepts, so the
+    /// value logged at startup can be pasted straight back into the config.
+    /// Round-tripping through the real deserializer is what makes this
+    /// meaningful: serde's kebab-case rename gives each variant exactly one
+    /// accepted spelling, so a parse back to the same variant pins the string.
+    #[test]
+    fn test_policy_display_round_trips_through_toml() {
+        for policy in [
+            PowerPolicy::TriggerOnce,
+            PowerPolicy::AcRequired,
+            PowerPolicy::Monitor,
+        ] {
+            let content = format!(
+                r#"
+[power]
+policy = "{policy}"
+"#
+            );
+            let f = write_config(&content);
+            assert_eq!(load_for_test(f.path()).unwrap().power.policy, policy);
+        }
+
+        for policy in [NetworkPolicy::Kill, NetworkPolicy::Monitor] {
+            let content = format!(
+                r#"
+[network]
+policy = "{policy}"
+"#
+            );
+            let f = write_config(&content);
+            assert_eq!(load_for_test(f.path()).unwrap().network.policy, policy);
+        }
+
+        for policy in [LidPolicy::Kill, LidPolicy::Monitor] {
+            let content = format!(
+                r#"
+[lid]
+policy = "{policy}"
+"#
+            );
+            let f = write_config(&content);
+            assert_eq!(load_for_test(f.path()).unwrap().lid.policy, policy);
+        }
+
+        for policy in [PciPolicy::Kill, PciPolicy::Monitor] {
+            let content = format!(
+                r#"
+[pci]
+policy = "{policy}"
+"#
+            );
+            let f = write_config(&content);
+            assert_eq!(load_for_test(f.path()).unwrap().pci.policy, policy);
+        }
+
+        for policy in [DisplayPolicy::Kill, DisplayPolicy::Monitor] {
+            let content = format!(
+                r#"
+[display]
+policy = "{policy}"
+"#
+            );
+            let f = write_config(&content);
+            assert_eq!(load_for_test(f.path()).unwrap().display.policy, policy);
+        }
     }
 }

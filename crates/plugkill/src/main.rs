@@ -407,7 +407,7 @@ fn main() {
 
     let power_baseline = if cfg.general.watch_power {
         let state = power::read_power_state();
-        info!("power baseline: {state} (policy: {:?})", cfg.power.policy);
+        info!("power baseline: {state} (policy: {})", cfg.power.policy);
         if cfg.power.require_locked {
             info!("  power violations require session to be locked");
         }
@@ -423,7 +423,7 @@ fn main() {
         let snapshot = network::enumerate_interfaces(&cfg.network.interfaces);
         let iface_count = snapshot.interfaces().len();
         info!(
-            "network baseline: {iface_count} interface(s) (policy: {:?})",
+            "network baseline: {iface_count} interface(s) (policy: {})",
             cfg.network.policy
         );
         for (name, state) in snapshot.interfaces() {
@@ -439,7 +439,7 @@ fn main() {
 
     let lid_baseline = if cfg.general.watch_lid {
         let state = lid::read_lid_state();
-        info!("lid baseline: {state} (policy: {:?})", cfg.lid.policy);
+        info!("lid baseline: {state} (policy: {})", cfg.lid.policy);
         if cfg.lid.grace_secs > 0 {
             info!("  grace period: {}s", cfg.lid.grace_secs);
         }
@@ -475,7 +475,7 @@ fn main() {
         match pci::enumerate_pci(&cfg.pci.ignore) {
             Ok(snapshot) => {
                 info!(
-                    "PCI baseline: {} device(s) (policy: {:?})",
+                    "PCI baseline: {} device(s) (policy: {})",
                     snapshot.len(),
                     cfg.pci.policy
                 );
@@ -492,10 +492,7 @@ fn main() {
 
     let display_baseline = if cfg.general.watch_display {
         let generation = display::display_generation(&cfg.display.ignore);
-        info!(
-            "display baseline captured (policy: {:?})",
-            cfg.display.policy
-        );
+        info!("display baseline captured (policy: {})", cfg.display.policy);
         Some(generation)
     } else {
         None
@@ -953,13 +950,9 @@ fn check_power_violation(
         st.power_trigger_once_fired = true;
     }
 
-    let policy_label = match cfg.power.policy {
-        PowerPolicy::TriggerOnce => "trigger-once",
-        PowerPolicy::AcRequired => "ac-required",
-        PowerPolicy::Monitor => unreachable!(),
-    };
     Some(format!(
-        "POWER VIOLATION: AC power removed (policy: {policy_label})"
+        "POWER VIOLATION: AC power removed (policy: {})",
+        cfg.power.policy
     ))
 }
 
