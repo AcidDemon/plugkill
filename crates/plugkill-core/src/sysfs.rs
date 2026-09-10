@@ -10,9 +10,10 @@ pub fn read_sysfs_attr(path: &Path) -> Result<Option<String>, Error> {
         Ok(contents) => Ok(Some(contents.trim().to_string())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-            // std's io::Error carries no path, so keep it in the message. The
-            // bus is already named by every caller that prints this.
-            let msg = format!("permission denied reading {}", path.display());
+            // std's io::Error carries no path, so keep it (and the original
+            // error text) in the message. The bus is already named by every
+            // caller that prints this.
+            let msg = format!("permission denied reading {}: {e}", path.display());
             Err(Error::Io(std::io::Error::new(e.kind(), msg)))
         }
         Err(e) => {
@@ -45,5 +46,8 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("permission denied reading"), "{msg}");
         assert!(msg.contains(&path.display().to_string()), "{msg}");
+        // The original io::Error's own text (and OS errno) must survive too,
+        // not just our own literal wording.
+        assert!(msg.contains("os error"), "{msg}");
     }
 }
