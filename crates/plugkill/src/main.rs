@@ -1219,6 +1219,36 @@ fn capture_baselines(
     daemon_state: &Arc<Mutex<DaemonState>>,
     only_missing: bool,
 ) {
+    // A bus switched off keeps its baseline unless it is cleared here, and
+    // re-enabling it later would then compare live devices against the
+    // pre-off snapshot: a kill caused by toggling a documented switch.
+    // Clearing lets the only_missing pass below capture a fresh one.
+    let g = &cfg.general;
+    if !g.watch_usb {
+        bl.usb = None;
+    }
+    if !g.watch_thunderbolt {
+        bl.thunderbolt = None;
+    }
+    if !g.watch_sdcard {
+        bl.sdcard = None;
+    }
+    if !g.watch_power {
+        bl.power = None;
+    }
+    if !g.watch_network {
+        bl.network = None;
+    }
+    if !g.watch_lid {
+        bl.lid = None;
+    }
+    if !g.watch_pci {
+        bl.pci = None;
+    }
+    if !g.watch_display {
+        bl.display = None;
+    }
+
     if cfg.general.watch_usb && !(only_missing && bl.usb.is_some()) {
         let (snapshot, names) = capture_usb_baseline();
         bl.usb = Some(snapshot);
@@ -1375,6 +1405,33 @@ mod tests {
             bl.display,
             Some(0xdead_beef),
             "reload must not re-baseline a bus that was already armed"
+        );
+    }
+
+    #[test]
+    fn test_reload_clears_a_disabled_bus_then_recaptures_it() {
+        let mut cfg = display_only_config();
+        let state = Arc::new(Mutex::new(DaemonState::new(DaemonMode::Enforce)));
+        let mut bl = empty_baselines();
+        bl.display = Some(0xdead_beef);
+
+        cfg.general.watch_display = false;
+        capture_baselines(&cfg, &mut bl, &state, true);
+        assert_eq!(
+            bl.display, None,
+            "a bus switched off by reload must lose its baseline"
+        );
+
+        cfg.general.watch_display = true;
+        capture_baselines(&cfg, &mut bl, &state, true);
+        assert!(
+            bl.display.is_some(),
+            "switching a bus back on must capture a baseline"
+        );
+        assert_ne!(
+            bl.display,
+            Some(0xdead_beef),
+            "the recaptured baseline must be fresh, not the pre-off one"
         );
     }
 
