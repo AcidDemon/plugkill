@@ -243,7 +243,9 @@ mod freebsd {
                     }
                 }
                 Err(e) => {
-                    WARNED.call_once(|| warn!("cannot connect to devd at {DEVD_PIPE}: {e}"));
+                    WARNED.call_once(|| {
+                        warn!("lid monitoring: cannot connect to devd at {DEVD_PIPE}: {e}")
+                    });
                 }
             }
             std::thread::sleep(Duration::from_secs(2));
