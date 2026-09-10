@@ -15,7 +15,7 @@ use plugkill_core::state::{Baselines, DaemonMode, DeviceNames};
 use plugkill_core::thunderbolt::{self, ThunderboltDeviceId, ThunderboltSnapshot};
 use plugkill_core::usb::{self, DeviceSnapshot, UsbDeviceId};
 use plugkill_core::{display, ipc, network, pci};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -173,15 +173,14 @@ fn main() {
 
         match usb::enumerate_devices_detailed() {
             Ok(devices) => {
-                let whitelist_map = loaded_wl.as_ref().map(|wl| {
-                    let mut map: HashMap<(String, String), u32> = HashMap::new();
-                    for entry in &wl.usb.devices {
-                        *map.entry((entry.vendor_id.clone(), entry.product_id.clone()))
-                            .or_insert(0) += entry.count;
-                    }
-                    map
+                let whitelist_ids = loaded_wl.as_ref().map(|wl| {
+                    wl.usb
+                        .devices
+                        .iter()
+                        .map(|e| (e.vendor_id.clone(), e.product_id.clone()))
+                        .collect::<HashSet<(String, String)>>()
                 });
-                usb::print_device_list(&devices, whitelist_map.as_ref());
+                usb::print_device_list(&devices, whitelist_ids.as_ref());
             }
             Err(e) => {
                 error!("failed to enumerate USB devices: {e}");
@@ -192,27 +191,27 @@ fn main() {
         if let Ok(tb_devices) = thunderbolt::enumerate_thunderbolt_devices_detailed()
             && !tb_devices.is_empty()
         {
-            let tb_whitelist_map = loaded_wl.as_ref().map(|wl| {
-                let mut map: HashMap<String, ()> = HashMap::new();
-                for entry in &wl.thunderbolt.devices {
-                    map.insert(entry.unique_id.clone(), ());
-                }
-                map
+            let tb_whitelist_ids = loaded_wl.as_ref().map(|wl| {
+                wl.thunderbolt
+                    .devices
+                    .iter()
+                    .map(|e| e.unique_id.clone())
+                    .collect::<HashSet<String>>()
             });
-            thunderbolt::print_thunderbolt_device_list(&tb_devices, tb_whitelist_map.as_ref());
+            thunderbolt::print_thunderbolt_device_list(&tb_devices, tb_whitelist_ids.as_ref());
         }
 
         if let Ok(sd_devices) = sdcard::enumerate_sdcard_devices_detailed()
             && !sd_devices.is_empty()
         {
-            let sd_whitelist_map = loaded_wl.as_ref().map(|wl| {
-                let mut map: HashMap<String, ()> = HashMap::new();
-                for entry in &wl.sdcard.devices {
-                    map.insert(entry.serial.clone(), ());
-                }
-                map
+            let sd_whitelist_ids = loaded_wl.as_ref().map(|wl| {
+                wl.sdcard
+                    .devices
+                    .iter()
+                    .map(|e| e.serial.clone())
+                    .collect::<HashSet<String>>()
             });
-            sdcard::print_sdcard_device_list(&sd_devices, sd_whitelist_map.as_ref());
+            sdcard::print_sdcard_device_list(&sd_devices, sd_whitelist_ids.as_ref());
         }
         return;
     }
@@ -385,7 +384,7 @@ fn main() {
     let tb_whitelist = build_thunderbolt_whitelist(&cfg);
     if !tb_whitelist.devices().is_empty() {
         info!("Thunderbolt whitelist:");
-        for id in tb_whitelist.devices().keys() {
+        for id in tb_whitelist.devices() {
             info!("  {id}");
         }
     }
@@ -400,7 +399,7 @@ fn main() {
     let sd_whitelist = build_sdcard_whitelist(&cfg);
     if !sd_whitelist.devices().is_empty() {
         info!("SD card whitelist:");
-        for id in sd_whitelist.devices().keys() {
+        for id in sd_whitelist.devices() {
             info!("  {id}");
         }
     }
@@ -1167,7 +1166,7 @@ fn capture_thunderbolt_baseline(
                 .unwrap_or_default();
 
             info!("Thunderbolt baseline: {} device(s)", snapshot.len());
-            for id in snapshot.devices().keys() {
+            for id in snapshot.devices() {
                 let name = names
                     .get(&id.unique_id)
                     .map(|n| format!(" ({n})"))
@@ -1202,7 +1201,7 @@ fn capture_sdcard_baseline(
                 .unwrap_or_default();
 
             info!("SD card baseline: {} device(s)", snapshot.len());
-            for id in snapshot.devices().keys() {
+            for id in snapshot.devices() {
                 let name = names
                     .get(&id.serial)
                     .map(|n| format!(" ({n})"))
@@ -1235,24 +1234,26 @@ fn build_usb_whitelist(cfg: &config::Config) -> DeviceSnapshot {
 
 /// Build a ThunderboltSnapshot from the thunderbolt whitelist config entries.
 fn build_thunderbolt_whitelist(cfg: &config::Config) -> ThunderboltSnapshot {
-    let mut map = HashMap::new();
-    for entry in &cfg.thunderbolt_whitelist.devices {
-        let id = ThunderboltDeviceId {
-            unique_id: entry.unique_id.clone(),
-        };
-        map.insert(id, 1);
-    }
-    ThunderboltSnapshot::from_map(map)
+    ThunderboltSnapshot::from_set(
+        cfg.thunderbolt_whitelist
+            .devices
+            .iter()
+            .map(|entry| ThunderboltDeviceId {
+                unique_id: entry.unique_id.clone(),
+            })
+            .collect(),
+    )
 }
 
 /// Build an SdCardSnapshot from the SD card whitelist config entries.
 fn build_sdcard_whitelist(cfg: &config::Config) -> SdCardSnapshot {
-    let mut map = HashMap::new();
-    for entry in &cfg.sdcard_whitelist.devices {
-        let id = SdCardDeviceId {
-            serial: entry.serial.clone(),
-        };
-        map.insert(id, 1);
-    }
-    SdCardSnapshot::from_map(map)
+    SdCardSnapshot::from_set(
+        cfg.sdcard_whitelist
+            .devices
+            .iter()
+            .map(|entry| SdCardDeviceId {
+                serial: entry.serial.clone(),
+            })
+            .collect(),
+    )
 }

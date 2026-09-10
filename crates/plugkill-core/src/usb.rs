@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::sysfs::read_sysfs_attr;
 use log::warn;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::path::Path;
@@ -398,10 +398,7 @@ pub fn generate_whitelist_toml(devices: &[UsbDeviceInfo]) -> String {
 /// After the per-device listing, prints a summary of vendor:product counts
 /// so users can directly use these values for whitelist configuration.
 /// If `whitelist` is provided, each summary line is annotated with whitelist status.
-pub fn print_device_list(
-    devices: &[UsbDeviceInfo],
-    whitelist: Option<&HashMap<(String, String), u32>>,
-) {
+pub fn print_device_list(devices: &[UsbDeviceInfo], whitelist: Option<&HashSet<(String, String)>>) {
     println!("Connected USB devices ({} found):", devices.len());
 
     for dev in devices {
@@ -443,7 +440,7 @@ pub fn print_device_list(
         let name = product.as_deref().unwrap_or("Unknown device");
         let annotation = match whitelist {
             Some(wl) => {
-                if wl.contains_key(&(vid.clone(), pid.clone())) {
+                if wl.contains(&(vid.clone(), pid.clone())) {
                     " [whitelisted]"
                 } else {
                     " [NOT whitelisted]"

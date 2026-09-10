@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::sysfs::read_sysfs_attr;
 use log::warn;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt;
 use std::fs;
 use std::path::Path;
@@ -20,7 +20,6 @@ impl fmt::Display for SdCardDeviceId {
 
 /// Extended SD/MMC card information for display purposes.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct SdCardDeviceInfo {
     pub serial: String,
     pub name: Option<String>,
@@ -28,15 +27,13 @@ pub struct SdCardDeviceInfo {
     pub cid: Option<String>,
     pub manfid: Option<String>,
     pub oemid: Option<String>,
-    pub hwrev: Option<String>,
-    pub fwrev: Option<String>,
     pub date: Option<String>,
 }
 
-/// Snapshot of all currently connected SD/MMC cards.
+/// Snapshot of all currently connected SD/MMC cards, keyed by serial.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SdCardSnapshot {
-    devices: HashMap<SdCardDeviceId, u32>,
+    devices: HashSet<SdCardDeviceId>,
 }
 
 /// What kind of SD card change was detected.
@@ -68,15 +65,15 @@ impl SdCardSnapshot {
     #[cfg(test)]
     pub fn new() -> Self {
         Self {
-            devices: HashMap::new(),
+            devices: HashSet::new(),
         }
     }
 
-    pub fn from_map(devices: HashMap<SdCardDeviceId, u32>) -> Self {
+    pub fn from_set(devices: HashSet<SdCardDeviceId>) -> Self {
         Self { devices }
     }
 
-    pub fn devices(&self) -> &HashMap<SdCardDeviceId, u32> {
+    pub fn devices(&self) -> &HashSet<SdCardDeviceId> {
         &self.devices
     }
 
@@ -95,14 +92,14 @@ impl SdCardSnapshot {
         baseline: &SdCardSnapshot,
         whitelist: &SdCardSnapshot,
     ) -> Option<SdCardChange> {
-        for device in self.devices.keys() {
-            if !baseline.devices.contains_key(device) && !whitelist.devices.contains_key(device) {
+        for device in &self.devices {
+            if !baseline.devices.contains(device) && !whitelist.devices.contains(device) {
                 return Some(SdCardChange::Added(device.clone()));
             }
         }
 
-        for device in baseline.devices.keys() {
-            if !self.devices.contains_key(device) {
+        for device in &baseline.devices {
+            if !self.devices.contains(device) {
                 return Some(SdCardChange::Removed(device.clone()));
             }
         }
@@ -129,7 +126,7 @@ pub fn enumerate_sdcard_devices() -> Result<SdCardSnapshot, Error> {
     }
     #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
     {
-        Ok(SdCardSnapshot::from_map(HashMap::new()))
+        Ok(SdCardSnapshot::from_set(HashSet::new()))
     }
 }
 
@@ -156,7 +153,7 @@ pub fn enumerate_sdcard_devices_from(sysfs_root: &Path) -> Result<SdCardSnapshot
         ))
     })?;
 
-    let mut devices: HashMap<SdCardDeviceId, u32> = HashMap::new();
+    let mut devices: HashSet<SdCardDeviceId> = HashSet::new();
 
     for entry in entries {
         let entry = match entry {
@@ -187,8 +184,7 @@ pub fn enumerate_sdcard_devices_from(sysfs_root: &Path) -> Result<SdCardSnapshot
             _ => continue,
         };
 
-        let id = SdCardDeviceId { serial };
-        devices.insert(id, 1);
+        devices.insert(SdCardDeviceId { serial });
     }
 
     Ok(SdCardSnapshot { devices })
@@ -223,7 +219,7 @@ mod freebsd {
     use crate::error::Error;
     use crate::platform_freebsd::sysctl_string;
     use log::warn;
-    use std::collections::HashMap;
+    use std::collections::HashSet;
     use std::sync::Once;
 
     /// Whole-card device units under /dev (mmcsdN, excluding slices mmcsdNsM).
@@ -270,16 +266,13 @@ mod freebsd {
     }
 
     pub fn enumerate() -> Result<SdCardSnapshot, Error> {
-        let mut devices = HashMap::new();
+        let mut devices = HashSet::new();
         for n in mmcsd_units() {
-            devices.insert(
-                SdCardDeviceId {
-                    serial: serial_for(n),
-                },
-                1,
-            );
+            devices.insert(SdCardDeviceId {
+                serial: serial_for(n),
+            });
         }
-        Ok(SdCardSnapshot::from_map(devices))
+        Ok(SdCardSnapshot::from_set(devices))
     }
 
     pub fn enumerate_detailed() -> Result<Vec<SdCardDeviceInfo>, Error> {
@@ -292,8 +285,6 @@ mod freebsd {
                 cid: None,
                 manfid: None,
                 oemid: None,
-                hwrev: None,
-                fwrev: None,
                 date: None,
             });
         }
@@ -356,8 +347,6 @@ pub fn enumerate_sdcard_devices_detailed_from(
             cid: read_optional("cid")?,
             manfid: read_optional("manfid")?,
             oemid: read_optional("oemid")?,
-            hwrev: read_optional("hwrev")?,
-            fwrev: read_optional("fwrev")?,
             date: read_optional("date")?,
         });
     }
@@ -368,10 +357,7 @@ pub fn enumerate_sdcard_devices_detailed_from(
 }
 
 /// Print a formatted list of SD/MMC cards to stdout.
-pub fn print_sdcard_device_list(
-    devices: &[SdCardDeviceInfo],
-    whitelist: Option<&HashMap<String, ()>>,
-) {
+pub fn print_sdcard_device_list(devices: &[SdCardDeviceInfo], whitelist: Option<&HashSet<String>>) {
     println!();
     println!("Connected SD/MMC cards ({} found):", devices.len());
 
@@ -403,7 +389,7 @@ pub fn print_sdcard_device_list(
         let card_type = dev.card_type.as_deref().unwrap_or("?");
         let annotation = match whitelist {
             Some(wl) => {
-                if wl.contains_key(&dev.serial) {
+                if wl.contains(&dev.serial) {
                     " [whitelisted]"
                 } else {
                     " [NOT whitelisted]"
@@ -445,11 +431,7 @@ mod tests {
     }
 
     fn sd_snapshot(serials: &[&str]) -> SdCardSnapshot {
-        let mut map = HashMap::new();
-        for &s in serials {
-            map.insert(sd_id(s), 1);
-        }
-        SdCardSnapshot::from_map(map)
+        SdCardSnapshot::from_set(serials.iter().map(|&s| sd_id(s)).collect())
     }
 
     #[test]
@@ -522,8 +504,8 @@ mod tests {
 
         let snapshot = enumerate_sdcard_devices_from(dir.path()).unwrap();
         assert_eq!(snapshot.len(), 2);
-        assert!(snapshot.devices().contains_key(&sd_id("0x12345678")));
-        assert!(snapshot.devices().contains_key(&sd_id("0xabcdef01")));
+        assert!(snapshot.devices().contains(&sd_id("0x12345678")));
+        assert!(snapshot.devices().contains(&sd_id("0xabcdef01")));
     }
 
     #[test]
@@ -548,8 +530,6 @@ mod tests {
             ("cid", "03534453333247800123456700015600"),
             ("manfid", "0x000003"),
             ("oemid", "0x5344"),
-            ("hwrev", "0x8"),
-            ("fwrev", "0x0"),
             ("date", "01/2024"),
         ] {
             let mut f = fs::File::create(dev.join(name)).unwrap();

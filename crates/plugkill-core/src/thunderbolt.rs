@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::sysfs::read_sysfs_attr;
 use log::warn;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt;
 use std::fs;
 use std::path::Path;
@@ -30,10 +30,10 @@ pub struct ThunderboltDeviceInfo {
     pub generation: Option<String>,
 }
 
-/// Snapshot of all currently connected Thunderbolt devices.
+/// Snapshot of all currently connected Thunderbolt devices, keyed by unique_id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThunderboltSnapshot {
-    devices: HashMap<ThunderboltDeviceId, u32>,
+    devices: HashSet<ThunderboltDeviceId>,
 }
 
 /// What kind of Thunderbolt change was detected.
@@ -67,15 +67,15 @@ impl ThunderboltSnapshot {
     #[cfg(test)]
     pub fn new() -> Self {
         Self {
-            devices: HashMap::new(),
+            devices: HashSet::new(),
         }
     }
 
-    pub fn from_map(devices: HashMap<ThunderboltDeviceId, u32>) -> Self {
+    pub fn from_set(devices: HashSet<ThunderboltDeviceId>) -> Self {
         Self { devices }
     }
 
-    pub fn devices(&self) -> &HashMap<ThunderboltDeviceId, u32> {
+    pub fn devices(&self) -> &HashSet<ThunderboltDeviceId> {
         &self.devices
     }
 
@@ -96,14 +96,14 @@ impl ThunderboltSnapshot {
         baseline: &ThunderboltSnapshot,
         whitelist: &ThunderboltSnapshot,
     ) -> Option<ThunderboltChange> {
-        for device in self.devices.keys() {
-            if !baseline.devices.contains_key(device) && !whitelist.devices.contains_key(device) {
+        for device in &self.devices {
+            if !baseline.devices.contains(device) && !whitelist.devices.contains(device) {
                 return Some(ThunderboltChange::Added(device.clone()));
             }
         }
 
-        for device in baseline.devices.keys() {
-            if !self.devices.contains_key(device) {
+        for device in &baseline.devices {
+            if !self.devices.contains(device) {
                 return Some(ThunderboltChange::Removed(device.clone()));
             }
         }
@@ -140,7 +140,7 @@ pub fn enumerate_thunderbolt_devices() -> Result<ThunderboltSnapshot, Error> {
     }
     #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
     {
-        Ok(ThunderboltSnapshot::from_map(HashMap::new()))
+        Ok(ThunderboltSnapshot::from_set(HashSet::new()))
     }
 }
 
@@ -154,7 +154,7 @@ pub fn enumerate_thunderbolt_devices_from(sysfs_root: &Path) -> Result<Thunderbo
         ))
     })?;
 
-    let mut devices: HashMap<ThunderboltDeviceId, u32> = HashMap::new();
+    let mut devices: HashSet<ThunderboltDeviceId> = HashSet::new();
 
     for entry in entries {
         let entry = match entry {
@@ -180,8 +180,7 @@ pub fn enumerate_thunderbolt_devices_from(sysfs_root: &Path) -> Result<Thunderbo
             _ => continue,
         };
 
-        let id = ThunderboltDeviceId { unique_id };
-        devices.insert(id, 1);
+        devices.insert(ThunderboltDeviceId { unique_id });
     }
 
     Ok(ThunderboltSnapshot { devices })
@@ -211,7 +210,7 @@ mod freebsd {
     use super::{ThunderboltDeviceInfo, ThunderboltSnapshot};
     use crate::error::Error;
     use log::warn;
-    use std::collections::HashMap;
+    use std::collections::HashSet;
     use std::sync::Once;
 
     fn warn_once() {
@@ -223,7 +222,7 @@ mod freebsd {
 
     pub fn enumerate() -> Result<ThunderboltSnapshot, Error> {
         warn_once();
-        Ok(ThunderboltSnapshot::from_map(HashMap::new()))
+        Ok(ThunderboltSnapshot::from_set(HashSet::new()))
     }
 
     pub fn enumerate_detailed() -> Result<Vec<ThunderboltDeviceInfo>, Error> {
@@ -295,7 +294,7 @@ pub fn enumerate_thunderbolt_devices_detailed_from(
 /// Print a formatted list of Thunderbolt devices to stdout.
 pub fn print_thunderbolt_device_list(
     devices: &[ThunderboltDeviceInfo],
-    whitelist: Option<&HashMap<String, ()>>,
+    whitelist: Option<&HashSet<String>>,
 ) {
     println!();
     println!("Connected Thunderbolt devices ({} found):", devices.len());
@@ -337,7 +336,7 @@ pub fn print_thunderbolt_device_list(
         let name = dev.device_name.as_deref().unwrap_or("Unknown device");
         let annotation = match whitelist {
             Some(wl) => {
-                if wl.contains_key(&dev.unique_id) {
+                if wl.contains(&dev.unique_id) {
                     " [whitelisted]"
                 } else {
                     " [NOT whitelisted]"
@@ -375,11 +374,7 @@ mod tests {
     }
 
     fn tb_snapshot(ids: &[&str]) -> ThunderboltSnapshot {
-        let mut map = HashMap::new();
-        for &uid in ids {
-            map.insert(tb_id(uid), 1);
-        }
-        ThunderboltSnapshot::from_map(map)
+        ThunderboltSnapshot::from_set(ids.iter().map(|&uid| tb_id(uid)).collect())
     }
 
     #[test]
@@ -458,8 +453,8 @@ mod tests {
 
         let snapshot = enumerate_thunderbolt_devices_from(dir.path()).unwrap();
         assert_eq!(snapshot.len(), 2);
-        assert!(snapshot.devices().contains_key(&tb_id("some-uuid-1234")));
-        assert!(snapshot.devices().contains_key(&tb_id("host-uuid-0000")));
+        assert!(snapshot.devices().contains(&tb_id("some-uuid-1234")));
+        assert!(snapshot.devices().contains(&tb_id("host-uuid-0000")));
     }
 
     #[test]
