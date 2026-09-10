@@ -723,7 +723,7 @@ devices = []
 files_to_remove = []
 # Folders to securely delete on kill
 folders_to_remove = []
-# Remove plugkill binary and config after kill
+# Remove plugkill binary, config directory and log directory after kill
 melt_self = false
 # Sync filesystems before shutdown
 do_sync = true

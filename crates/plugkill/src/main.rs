@@ -647,7 +647,9 @@ fn main() {
         if let Some(description) = violation
             && handle_violation(&daemon_state, &description, &config_arc.read().unwrap())
         {
-            if let Err(e) = kill::execute_kill_sequence(&config_arc.read().unwrap(), &description) {
+            if let Err(e) =
+                kill::execute_kill_sequence(&config_arc.read().unwrap(), &cli.config, &description)
+            {
                 error!("kill sequence error: {e}");
                 if !config_arc.read().unwrap().general.dry_run {
                     std::process::exit(1);

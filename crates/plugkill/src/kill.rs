@@ -3,7 +3,7 @@ use plugkill_core::config::Config;
 use plugkill_core::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Component, Path};
 use std::process::Command;
 use std::time::Duration;
 
@@ -18,7 +18,14 @@ const SHRED_PASSES: u32 = 3;
 
 /// Execute the full kill sequence. Under normal operation this function
 /// does not return (the system shuts down). Returns Ok(()) only in dry_run mode.
-pub fn execute_kill_sequence(config: &Config, reason: &str) -> Result<(), Error> {
+///
+/// `config_path` is the `--config` path this config was loaded from; `melt_self`
+/// removes that directory rather than a hardcoded one.
+pub fn execute_kill_sequence(
+    config: &Config,
+    config_path: &Path,
+    reason: &str,
+) -> Result<(), Error> {
     let dry_run = config.general.dry_run;
 
     // Mask SIGINT and SIGTERM so the kill sequence cannot be interrupted.
@@ -70,7 +77,7 @@ pub fn execute_kill_sequence(config: &Config, reason: &str) -> Result<(), Error>
     }
 
     if config.destruction.melt_self {
-        melt_self(dry_run);
+        melt_self(dry_run, config_path);
     }
 
     if dry_run {
@@ -359,14 +366,34 @@ fn wipe_swap(device: &str, dry_run: bool) -> Result<(), Error> {
     Ok(())
 }
 
-/// Remove the plugkill binary and config directory.
-fn melt_self(dry_run: bool) {
+/// The directory `melt_self` removes: the one holding the config that was
+/// loaded, so FreeBSD's `/usr/local/etc/plugkill` is not missed and a custom
+/// `--config` is not left behind.
+///
+/// `None` when that directory is not a safe target: a relative path, a path
+/// with `..` in it, or a config sitting directly under a top-level directory
+/// (`--config /etc/plugkill.toml` would otherwise shred `/etc`).
+fn config_dir_to_remove(config_path: &Path) -> Option<&Path> {
+    let parent = config_path.parent()?;
+    if !parent.is_absolute() || parent.components().any(|c| c == Component::ParentDir) {
+        return None;
+    }
+    let depth = parent
+        .components()
+        .filter(|c| matches!(c, Component::Normal(_)))
+        .count();
+    (depth >= 2).then_some(parent)
+}
+
+/// Remove the plugkill binary, the directory holding the loaded config, and
+/// the log directory `/var/log/plugkill`.
+fn melt_self(dry_run: bool, config_path: &Path) {
     if dry_run {
-        info!("[DRY RUN] would melt self (remove binary and config)");
+        info!("[DRY RUN] would melt self (remove binary, config directory and log directory)");
         return;
     }
 
-    info!("melting self, removing binary and config");
+    info!("melting self, removing binary, config directory and log directory");
 
     if let Ok(exe) = std::env::current_exe()
         && let Err(e) = fs::remove_file(&exe)
@@ -374,8 +401,16 @@ fn melt_self(dry_run: bool) {
         error!("cannot remove own binary {}: {e}", exe.display());
     }
 
-    if let Err(e) = fs::remove_dir_all("/etc/plugkill") {
-        error!("cannot remove /etc/plugkill: {e}");
+    match config_dir_to_remove(config_path) {
+        Some(dir) => {
+            if let Err(e) = fs::remove_dir_all(dir) {
+                error!("cannot remove config directory {}: {e}", dir.display());
+            }
+        }
+        None => warn!(
+            "refusing to remove the config directory of {}: not a subdirectory of an absolute path",
+            config_path.display()
+        ),
     }
 
     if let Err(e) = fs::remove_dir_all("/var/log/plugkill") {
@@ -546,5 +581,45 @@ mod tests {
     fn test_shred_directory_rejects_relative() {
         let err = shred_directory(Path::new("relative/dir"), false);
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn test_config_dir_to_remove() {
+        assert_eq!(
+            config_dir_to_remove(Path::new("/etc/plugkill/config.toml")),
+            Some(Path::new("/etc/plugkill"))
+        );
+        // FreeBSD path from the README.
+        assert_eq!(
+            config_dir_to_remove(Path::new("/usr/local/etc/plugkill/config.toml")),
+            Some(Path::new("/usr/local/etc/plugkill"))
+        );
+        // Parent is a top-level directory: refuse, that would shred /etc.
+        assert_eq!(config_dir_to_remove(Path::new("/etc/plugkill.toml")), None);
+        assert_eq!(config_dir_to_remove(Path::new("/config.toml")), None);
+        // Relative paths and traversal: refuse.
+        assert_eq!(config_dir_to_remove(Path::new("config.toml")), None);
+        assert_eq!(
+            config_dir_to_remove(Path::new("etc/plugkill/config.toml")),
+            None
+        );
+        assert_eq!(
+            config_dir_to_remove(Path::new("/etc/plugkill/../../config.toml")),
+            None
+        );
+    }
+
+    #[test]
+    fn test_melt_self_dry_run_removes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg_dir = dir.path().join("plugkill");
+        fs::create_dir(&cfg_dir).unwrap();
+        let cfg_path = cfg_dir.join("config.toml");
+        fs::write(&cfg_path, "").unwrap();
+
+        melt_self(true, &cfg_path);
+
+        assert!(cfg_path.exists());
+        assert!(cfg_dir.exists());
     }
 }
