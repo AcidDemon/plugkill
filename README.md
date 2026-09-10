@@ -1,44 +1,30 @@
-# plugkill
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/logo-watchdog-dark.svg">
+  <img alt="plugkill" src="assets/brand/logo-watchdog-light.svg" width="560">
+</picture>
 
-![plugkill banner](assets/plugkill-banner-small.png)
+A hardware kill-switch daemon for Linux and FreeBSD. It watches the physical state of the machine and powers it off when something changes that you did not authorize: a USB stick appears, the Thunderbolt bus grows a device, the power cable is pulled, the Ethernet cable is unplugged, the lid closes, a monitor is attached.
 
-A hardware kill-switch daemon for Linux and FreeBSD. Monitors USB, Thunderbolt, SD card, and PCI buses, AC power supply, network link state, laptop lid, and external displays, shutting down the system when unauthorized device changes, power removal, cable tampering, lid close, or a monitor being attached or detached are detected.
+Before it shuts down it can shred files, run your own commands, wipe swap and delete its own binary.
 
-## What it does
+## What it watches
 
-plugkill continuously polls your hardware buses. The moment a device is added, removed, or tampered with, it fires a configurable kill sequence: shreds files, runs custom commands, wipes swap, and powers off. It can also run in learning mode to audit device changes without acting on them, and exposes a Unix socket for runtime control.
+Each bus can be turned off in the config (`watch_usb = false`) or on the command line (`--no-usb`).
 
-## Features
-
-- **Multi-bus monitoring**: USB, Thunderbolt/USB4, SD/MMC/SDIO, AC power supply, network link, laptop lid, PCI bus, and external displays, each independently toggleable
-- **Selective bus control**: disable individual buses via config (`watch_usb = false`) or CLI (`--no-usb`)
-- **Power supply monitoring**: detect AC power removal with three policies (trigger-once, ac-required, monitor), configurable grace period, and session lock awareness via D-Bus logind
-- **Network link monitoring**: detect Ethernet cable removal on physical NICs, with configurable interface filter and grace period
-- **Lid close monitoring**: detect laptop lid close via D-Bus logind (with procfs fallback), acquires a sleep inhibitor to act before suspend
-- **PCI bus monitoring**: detect any PCI device add/remove, with a substring ignore list for devices that flap under power management. Catches Thunderbolt PCIe tunnels where per-device whitelisting isn't available
-- **Display monitoring**: detect external HDMI/DisplayPort connect or disconnect (a laptop yanked from a dock/projector, or a rogue capture device attached), with a connector ignore list
-- **Learning mode**: log violations without triggering the kill sequence; switch at runtime via socket
-- **Runtime control socket**: disarm/arm, switch modes, reload config, query status over a Unix domain socket
-- **Config hot-reload**: change whitelists or settings without restarting the daemon
-- **Secure destruction**: multi-pass file shredding, swap wiping, binary self-destruct
-- **Hardened systemd integration**: ships with a NixOS module, plus a reference unit file for other distros
-
-### Monitored buses
-
-| Bus | Sysfs path | Whitelist key | Config section |
-|-----|-----------|---------------|----------------|
-| USB | `/sys/bus/usb/devices` | `vendor_id` + `product_id` (with count) | `[whitelist]` |
+| Bus | Where it reads | Whitelist key | Config section |
+|-----|----------------|---------------|----------------|
+| USB | `/sys/bus/usb/devices` | `vendor_id` + `product_id`, with a count | `[whitelist]` |
 | Thunderbolt/USB4 | `/sys/bus/thunderbolt/devices` | `unique_id` (UUID) | `[thunderbolt_whitelist]` |
 | SD/MMC/SDIO | `/sys/bus/mmc/devices` | `serial` (hex) | `[sdcard_whitelist]` |
-| Power supply | `/sys/class/power_supply` | none (policy-based) | `[power]` |
-| Network | `/sys/class/net` | none (interface filter) | `[network]` |
-| Lid | D-Bus logind / `/proc/acpi` | none (policy-based) | `[lid]` |
-| PCI | `/sys/bus/pci/devices` | none (ignore list) | `[pci]` |
-| Display | `/sys/class/drm` | none (ignore list) | `[display]` |
+| Power supply | `/sys/class/power_supply` | none, policy based | `[power]` |
+| Network | `/sys/class/net` | none, interface filter | `[network]` |
+| Lid | D-Bus logind, `/proc/acpi` fallback | none, policy based | `[lid]` |
+| PCI | `/sys/bus/pci/devices` | none, ignore list | `[pci]` |
+| Display | `/sys/class/drm` | none, ignore list | `[display]` |
 
-## Getting started
+Power, network and lid monitoring are off by default. The PCI monitor is worth enabling on machines with Thunderbolt: a TB device that tunnels PCIe shows up as a new PCI device, so PCI catches it even where per-device whitelisting is not available.
 
-### 1. Build
+## Quick start
 
 ```bash
 git clone https://github.com/AcidDemon/plugkill.git
@@ -47,18 +33,14 @@ cargo build --release
 sudo install -m 755 target/release/plugkill /usr/local/bin/
 ```
 
-Or on NixOS, add the flake input and enable the module (see [NixOS section](#nixos-flake) below).
-
-### 2. Discover your devices
-
-Run these as any user, no root required:
+Find out what is currently plugged in. Neither command needs root:
 
 ```bash
-plugkill --list-devices          # show all USB, Thunderbolt, and SD devices with details
-plugkill --generate-whitelist    # generate whitelist TOML you can paste into your config
+plugkill --list-devices          # USB, Thunderbolt and SD devices with details
+plugkill --generate-whitelist    # the same devices as TOML you can paste into the config
 ```
 
-### 3. Create a config
+Write a config and paste the whitelist into it:
 
 ```bash
 sudo mkdir -p /etc/plugkill /var/log/plugkill /run/plugkill
@@ -66,70 +48,55 @@ plugkill --default-config | sudo tee /etc/plugkill/config.toml > /dev/null
 sudo chmod 600 /etc/plugkill/config.toml
 ```
 
-Edit `/etc/plugkill/config.toml` and paste in the whitelist output from step 2. Review the `[destruction]` and `[commands]` sections.
-
-### 4. Test with dry-run
+Review `[destruction]` and `[commands]` before going any further, then try it without the consequences:
 
 ```bash
-sudo plugkill --dry-run
+sudo plugkill --dry-run     # logs what it would do, shreds nothing, shuts nothing down
 ```
 
-This logs what would happen on a violation without actually shredding anything or shutting down. Plug or unplug a device to see it trigger.
-
-### 5. Test with learning mode
+Plug or unplug something to see it trigger. Once the whitelist looks right, learning mode runs the real daemon but never fires the kill sequence, which is the safer way to validate a whitelist in production:
 
 ```bash
 sudo plugkill --learn-mode
 ```
 
-Like dry-run but for the violation logic only: the daemon runs normally, logs every violation it would have acted on, but never fires the kill sequence. Useful for validating your whitelist in production before switching to enforce.
-
-### 6. Run for real
-
-```bash
-sudo plugkill
-```
-
-Or via systemd (see below).
+Then run it for real with `sudo plugkill`, or under systemd (see below).
 
 ## Runtime control
 
-While the daemon is running, you can control it from another terminal using the same binary:
+The daemon listens on a Unix socket at `/run/plugkill/plugkill.sock`, and the same binary talks to it:
 
 ```bash
-sudo plugkill --status              # JSON status: armed, mode, uptime, device counts, etc.
-sudo plugkill --disarm 300           # disarm for 5 minutes (mandatory timeout, max 1 hour)
-sudo plugkill --arm                  # re-arm immediately; re-captures baselines
-sudo plugkill --learn                # switch to learning mode at runtime
-sudo plugkill --enforce              # switch back to enforce mode
-sudo plugkill --reload               # hot-reload config without restarting
+sudo plugkill --status              # JSON: armed, mode, uptime, device counts
+sudo plugkill --disarm 300          # disarm for 5 minutes
+sudo plugkill --arm                 # re-arm now, re-capturing baselines
+sudo plugkill --learn               # switch to learning mode
+sudo plugkill --enforce             # switch back
+sudo plugkill --reload              # reload the config without restarting
 ```
 
-These commands connect to the daemon's Unix socket at `/run/plugkill/plugkill.sock` (override with `--socket`). The protocol is line-delimited JSON, so you can also script it directly:
+There is no indefinite disarm. A timeout is mandatory and the maximum is 3600 seconds. When the timeout expires, or when you re-arm by hand, plugkill re-captures its baselines from whatever is connected at that moment.
+
+The protocol is line-delimited JSON, so scripting it directly works too:
 
 ```bash
 echo '{"command":"status"}' | sudo socat - UNIX-CONNECT:/run/plugkill/plugkill.sock
 ```
 
-### Disarm / arm behavior
-
-- **Disarm requires a timeout**: there is no indefinite disarm. Maximum is 3600 seconds (1 hour).
-- **On re-arm** (timeout expiry or manual `--arm`), baselines are re-captured from whatever devices are currently connected.
-
 ## Configuration
 
-Generate the default with `plugkill --default-config`. The file is TOML:
+`plugkill --default-config` prints a commented starting point. The interesting parts:
 
 ```toml
 [general]
-sleep_ms = 250                                    # polling interval in ms (50-10000)
-log_file = "/var/log/plugkill/plugkill.log"       # kill event log
-watch_usb = true                                  # monitor USB bus
-watch_thunderbolt = true                          # monitor Thunderbolt bus
-watch_sdcard = true                               # monitor SD/MMC bus
-watch_power = false                               # monitor AC power supply (opt-in)
-watch_network = false                             # monitor network link state (opt-in)
-watch_lid = false                                 # monitor laptop lid close (opt-in)
+sleep_ms = 250                                    # polling interval, 50-10000
+log_file = "/var/log/plugkill/plugkill.log"
+watch_usb = true
+watch_thunderbolt = true
+watch_sdcard = true
+watch_power = false
+watch_network = false
+watch_lid = false
 
 [whitelist]
 devices = [
@@ -137,59 +104,53 @@ devices = [
 ]
 
 [thunderbolt_whitelist]
-devices = [
-  # { unique_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" },
-]
+devices = []                     # { unique_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" }
 
 [sdcard_whitelist]
-devices = [
-  # { serial = "0x12345678" },
-]
+devices = []                     # { serial = "0x12345678" }
 
 [power]
-# policy = "monitor"             # "trigger-once", "ac-required", or "monitor"
-# grace_secs = 0                 # seconds to wait before triggering (0-300)
-# require_locked = false         # only trigger when session is locked
+policy = "monitor"               # trigger-once, ac-required, monitor
+grace_secs = 0                   # 0-300
+require_locked = false           # only trigger while the session is locked
 
 [network]
-# policy = "monitor"             # "kill" or "monitor"
-# grace_secs = 0                 # seconds to wait before triggering (0-300)
-# interfaces = ["eth0"]          # specific interfaces (empty = all physical NICs)
+policy = "monitor"               # kill, monitor
+grace_secs = 0
+interfaces = ["eth0"]            # empty means all physical NICs
 
 [lid]
-# policy = "monitor"             # "kill" or "monitor"
-# grace_secs = 0                 # seconds to wait before triggering (0-300)
+policy = "monitor"               # kill, monitor
+grace_secs = 0
 
 [destruction]
-files_to_remove = []             # files to securely shred (3-pass random overwrite)
-folders_to_remove = []           # directories to recursively shred
-melt_self = false                # delete plugkill binary and config after kill
-do_sync = true                   # sync filesystems before shutdown
-do_wipe_swap = false             # overwrite swap partition
-# swap_device = "/dev/sda2"     # required if do_wipe_swap = true
+files_to_remove = []             # shredded with a 3-pass random overwrite
+folders_to_remove = []           # shredded recursively
+melt_self = false                # delete the plugkill binary and config after the kill
+do_sync = true
+do_wipe_swap = false
+# swap_device = "/dev/sda2"      # required when do_wipe_swap = true
 
 [commands]
-kill_commands = [
-  # ["/usr/bin/truecrypt", "--dismount"],
-]
+kill_commands = []               # [["/usr/bin/truecrypt", "--dismount"]]
 ```
 
-### Security requirements
+plugkill refuses to start on a config that fails any of these:
 
-- Config file **must** be owned by root (uid 0)
-- Config file **must not** be group-writable or world-writable
-- All paths must be absolute: no relative paths, no `..` traversal
-- Kill command binaries must use absolute paths
+- owned by root
+- not group- or world-writable
+- every path absolute, with no `..` in it
+- every kill command binary given by absolute path
 
-## CLI reference
+## CLI
 
 ```
 plugkill [OPTIONS]
 
-Daemon options:
-  -c, --config <PATH>       Config file path [default: /etc/plugkill/config.toml]
-      --dry-run             Log actions without executing them
-      --learn-mode          Start in learning mode (log violations, don't kill)
+Daemon:
+  -c, --config <PATH>       Config file [default: /etc/plugkill/config.toml]
+      --dry-run             Log actions instead of executing them
+      --learn-mode          Start in learning mode
       --no-usb              Disable USB monitoring
       --no-thunderbolt      Disable Thunderbolt monitoring
       --no-sdcard           Disable SD card monitoring
@@ -198,31 +159,30 @@ Daemon options:
       --no-lid              Disable lid close monitoring
       --no-pci              Disable PCI bus monitoring
       --no-display          Disable external display monitoring
-      --socket <PATH>       Control socket path [default: /run/plugkill/plugkill.sock]
+      --socket <PATH>       Control socket [default: /run/plugkill/plugkill.sock]
 
-Client commands (connect to running daemon):
-      --status              Query daemon status (JSON)
+Client, against a running daemon:
+      --status              Print daemon status as JSON
       --disarm <SECONDS>    Disarm for N seconds (1-3600)
       --arm                 Re-arm and re-capture baselines
       --learn               Switch to learning mode
       --enforce             Switch to enforce mode
-      --reload              Hot-reload configuration
+      --reload              Reload the configuration
 
-Utility (no root required):
-      --default-config      Print default configuration and exit
+No root required:
+      --default-config      Print the default configuration
       --list-devices        List connected devices with details
       --generate-whitelist  Generate whitelist TOML from connected devices
 
-  -h, --help                Print help
-  -V, --version             Print version
+  -h, --help
+  -V, --version
 ```
 
-## Installation
+## Installing
 
-### NixOS (flake)
+### NixOS
 
 ```nix
-# flake.nix
 {
   inputs.plugkill.url = "github:AcidDemon/plugkill";
 
@@ -235,35 +195,21 @@ Utility (no root required):
             enable = true;
             settings = {
               general.sleep_ms = 250;
+              general.watch_power = true;
+              general.watch_lid = true;
               whitelist.devices = [
                 { vendor_id = "1d6b"; product_id = "0002"; count = 3; }
               ];
-              thunderbolt_whitelist.devices = [
-                { unique_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"; }
-              ];
-              sdcard_whitelist.devices = [
-                { serial = "0x12345678"; }
-              ];
-              general.watch_power = true;
               power = {
                 policy = "trigger-once";
                 grace_secs = 30;
                 require_locked = true;
               };
-              general.watch_network = true;
-              network = {
-                policy = "kill";
-                interfaces = [ "eth0" ];
-              };
-              general.watch_lid = true;
               lid = {
                 policy = "kill";
                 grace_secs = 5;
               };
-              destruction = {
-                files_to_remove = [ "/home/user/secrets.tar.gpg" ];
-                do_sync = true;
-              };
+              destruction.files_to_remove = [ "/home/user/secrets.tar.gpg" ];
             };
           };
         }
@@ -273,23 +219,11 @@ Utility (no root required):
 }
 ```
 
-The NixOS module runs plugkill as a hardened systemd service with restrictive capabilities, filesystem protections, network isolation, and a `RuntimeDirectory` for the control socket.
+The module runs plugkill as a hardened systemd service: restricted capabilities, filesystem protections, no network beyond `AF_UNIX`, and a `RuntimeDirectory` for the control socket.
 
-### Cargo (any Linux distribution)
+### systemd on other distributions
 
-```bash
-git clone https://github.com/AcidDemon/plugkill.git
-cd plugkill
-cargo build --release
-sudo install -m 755 target/release/plugkill /usr/local/bin/
-sudo mkdir -p /etc/plugkill /var/log/plugkill /run/plugkill
-plugkill --default-config | sudo tee /etc/plugkill/config.toml > /dev/null
-sudo chmod 600 /etc/plugkill/config.toml
-```
-
-### Systemd service (non-NixOS)
-
-Create `/etc/systemd/system/plugkill.service`:
+Build and install as in the quick start, then create `/etc/systemd/system/plugkill.service`:
 
 ```ini
 [Unit]
@@ -305,7 +239,6 @@ RuntimeDirectory=plugkill
 RuntimeDirectoryMode=0755
 Environment=RUST_LOG=info
 
-# Hardening
 ProtectSystem=strict
 ReadWritePaths=/var/log/plugkill /run/plugkill
 PrivateTmp=true
@@ -328,7 +261,7 @@ sudo systemctl enable --now plugkill.service
 
 ### FreeBSD
 
-plugkill builds from the same source tree on FreeBSD. USB enumeration links libusb (shipped in the base system); `pkgconf` lets the build locate it. No extra port is required beyond the Rust toolchain.
+Same source tree. USB enumeration links against the libusb in the base system, and `pkgconf` lets the build find it, so the Rust toolchain is the only thing you need to install.
 
 ```sh
 pkg install rust pkgconf
@@ -342,74 +275,53 @@ install -m 755 target/release/plugkill-relay /usr/local/bin/   # optional
 mkdir -p /usr/local/etc/plugkill /var/log/plugkill /var/run/plugkill
 plugkill --default-config > /usr/local/etc/plugkill/config.toml
 chmod 600 /usr/local/etc/plugkill/config.toml
-```
 
-Install the rc.d script from `freebsd/rc.d/` and enable the service:
-
-```sh
 install -m 755 freebsd/rc.d/plugkill /usr/local/etc/rc.d/plugkill
 sysrc plugkill_enable=YES
 service plugkill start
 ```
 
-Test first with `plugkill_flags="--dry-run"` in `/etc/rc.conf`, or run `plugkill --dry-run` by hand. The relay has its own script (`freebsd/rc.d/plugkill-relay`, knob `plugkill_relay_enable`).
+Test with `plugkill_flags="--dry-run"` in `/etc/rc.conf` first, or run `plugkill --dry-run` by hand. The relay has its own script at `freebsd/rc.d/plugkill-relay` with the `plugkill_relay_enable` knob.
 
-Lid monitoring needs the machine to stay awake long enough for plugkill to see the close, so turn off ACPI lid suspend and let plugkill handle the event:
+Config lives in `/usr/local/etc/plugkill` and the control socket in `/var/run/plugkill`.
+
+Lid monitoring needs the machine awake long enough for plugkill to see the close, so hand the event to plugkill instead of ACPI:
 
 ```sh
 sysrc -f /etc/sysctl.conf hw.acpi.lid_switch_state=NONE
 sysctl hw.acpi.lid_switch_state=NONE
 ```
 
-plugkill reads lid state from devd's event socket (`/var/run/devd.pipe`), which requires devd (running by default). Note the FreeBSD paths: config in `/usr/local/etc/plugkill`, control socket in `/var/run/plugkill`.
-
-## Use cases
-
-- **Anti-forensic dead man's switch**: attach a USB key to your wrist; if the machine is seized, the key pulls out and the system shuts down
-- **Prevent BadUSB / rubber ducky attacks**: any unauthorized USB insertion triggers immediate shutdown
-- **Block Thunderbolt DMA attacks**: detect new physical connections before device authorization
-- **Audit hardware changes**: run in learning mode to log every device event without acting on it
-- **Power-unplug protection**: detect AC power removal on laptops left unattended (with optional grace period and session lock awareness)
-- **Network cable tampering**: detect Ethernet cable removal as a signal that someone is physically accessing the machine
-- **Lid-close anti-theft**: detect laptop lid close when someone snatches a running laptop; the sleep inhibitor gives plugkill a window to act before suspend
-- **Production hardening**: detect unauthorized SD card or USB insertion on embedded/kiosk systems
+Lid state comes from devd's event socket at `/var/run/devd.pipe`, and devd runs by default.
 
 ## How it works
 
-1. On startup, plugkill captures a **baseline snapshot** of all connected devices on each active bus
-2. Every 250ms (configurable), it polls the current device state and compares against the baseline + whitelists
-3. If any unauthorized change is detected:
-   - In **enforce mode**: the kill sequence fires (mask signals, shred files, run commands, sync, wipe swap, self-destruct, power off)
-   - In **learn mode**: the violation is logged and counted, but no action is taken
-4. If device enumeration itself fails, this is treated as tampering
-5. Power monitoring (if enabled) tracks AC/battery transitions with configurable grace periods and optional session lock detection via D-Bus logind
-6. Network monitoring (if enabled) detects link-down transitions on physical NICs via sysfs operstate
-7. Lid monitoring (if enabled) detects lid close via D-Bus logind (with procfs fallback) and acquires a sleep inhibitor to act before suspend
-8. Buses that lack hardware (no Thunderbolt controller, no MMC bus) are silently skipped
+At startup plugkill takes a baseline snapshot of every device on every active bus. Every 250 ms by default it polls again and compares against that baseline plus your whitelists. An unauthorized change fires the kill sequence: mask signals, shred the configured files, run the configured commands, sync, wipe swap, delete itself, power off. In learning mode the violation is logged and counted instead.
 
-## Origin
+If enumeration itself fails, plugkill treats that as tampering rather than as an error to ignore. Buses with no hardware behind them (no Thunderbolt controller, no MMC bus) are skipped without complaint.
 
-A from-scratch Rust rewrite of the original [usbkill](https://github.com/hephaest0s/usbkill) by [Hephaestos](https://github.com/hephaest0s), extended with Thunderbolt/SD card monitoring, runtime control, learning mode, and config hot-reload.
+Power monitoring tracks AC and battery transitions, with a grace period and optional session lock detection through logind. Network monitoring watches operstate on physical NICs for link-down. Lid monitoring takes a sleep inhibitor so it has a window to act before the machine suspends.
 
 ## Platform support
 
 | Platform | Architecture | Status |
-|----------|-------------|--------|
+|----------|--------------|--------|
 | Linux | x86_64 | Supported |
 | Linux | aarch64 | Supported |
 | FreeBSD | x86_64 | Supported |
 
-One codebase, with the hardware backend chosen at compile time. Linux reads sysfs (`/sys/bus`, `/sys/class`), queries D-Bus logind for session lock and lid state, and shuts down via `reboot(2)`. FreeBSD reads USB through libusb, AC via `hw.acpi.acline`, link state via the `SIOCGIFMEDIA` ioctl, PCI via `pciconf -l`, and lid and display state from devd events, and shuts down via `reboot(RB_POWEROFF)`.
+One codebase, hardware backend picked at compile time. Linux reads sysfs, asks logind about session lock and lid state, and shuts down through `reboot(2)`. FreeBSD reads USB through libusb, AC through `hw.acpi.acline`, link state through the `SIOCGIFMEDIA` ioctl, PCI through `pciconf -l`, lid and display through devd events, and shuts down through `reboot(RB_POWEROFF)`.
 
-The PCI monitor partly covers the Thunderbolt gap on FreeBSD: a TB device that tunnels PCIe shows up as a new PCI device, so `watch_pci` catches its add/remove even though the TB bus itself can't be enumerated. Two display caveats on FreeBSD: the connector `ignore` list has no effect (the devd event doesn't name the connector, so any connector change trips), and HDMI hotplug has historically been less reliable than DisplayPort under drm-kmod.
+Two things are missing on FreeBSD. Thunderbolt monitoring is unavailable, because there is no per-device `unique_id` to enumerate; the bus reports nothing, warns once, and `watch_thunderbolt` does nothing. And `require_locked` depends on logind, so lock state always reads as unknown.
 
-Two features have no FreeBSD equivalent:
+Two display caveats there as well: the connector `ignore` list has no effect, since the devd event does not name the connector and any connector change trips, and HDMI hotplug has historically been less reliable than DisplayPort under drm-kmod.
 
-- **Thunderbolt monitoring** is unavailable. FreeBSD exposes no per-device `unique_id` to enumerate, so the bus reports nothing and warns once; `watch_thunderbolt` has no effect there.
-- **`require_locked`** (trigger only when the session is locked) depends on logind, which FreeBSD lacks, so lock state reads as unknown.
+SD card serials on FreeBSD are best-effort, read from `dev.mmcsd.N.%pnpinfo`. Check that your card's serial actually appears in `plugkill --list-devices` before you rely on `[sdcard_whitelist]`.
 
-SD card serial identity on FreeBSD is best-effort, read from `dev.mmcsd.N.%pnpinfo`. Confirm your card's serial shows up in `plugkill --list-devices` before relying on `[sdcard_whitelist]`.
+## Origin
+
+A from-scratch Rust rewrite of [usbkill](https://github.com/hephaest0s/usbkill) by [Hephaestos](https://github.com/hephaest0s), with Thunderbolt and SD card monitoring, runtime control, learning mode and config hot-reload added.
 
 ## License
 
-GPL-3.0. See [LICENSE](LICENSE) for details.
+GPL-3.0. See [LICENSE](LICENSE).
