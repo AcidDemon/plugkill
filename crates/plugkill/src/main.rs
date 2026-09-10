@@ -359,7 +359,12 @@ fn main() {
     let mut device_names = DeviceNames::default();
 
     let usb_baseline = if cfg.general.watch_usb {
-        let (snapshot, names) = capture_usb_baseline();
+        // Startup is the one caller that exits: refusing to come up is louder
+        // than coming up with USB unmonitored, and there is no armed state to
+        // preserve yet. capture_usb_baseline already logged the cause.
+        let Some((snapshot, names)) = capture_usb_baseline() else {
+            std::process::exit(1);
+        };
         device_names.usb = names;
         Some(snapshot)
     } else {
@@ -1131,14 +1136,26 @@ fn handle_violation(
     }
 }
 
-/// Capture USB baseline, exiting on failure.
+/// USB product names keyed by (vendor id, product id), the shape
+/// `DeviceNames::usb` holds.
+type UsbNames = HashMap<(String, String), String>;
+
+/// Capture USB baseline, returning None on enumeration failure.
 /// Also returns a name lookup map from detailed enumeration.
-fn capture_usb_baseline() -> (DeviceSnapshot, HashMap<(String, String), String>) {
+///
+/// The caller decides what a failure means, because the two callers need
+/// opposite things. Startup exits: a daemon that cannot read the bus it is
+/// configured to watch has nothing to offer. A reload or re-arm must not,
+/// because a reload can newly enable USB (including re-enabling a bus whose
+/// baseline the clearing logic zeroed), and exiting there turns a transient
+/// enumeration failure into a restart loop under Restart=on-failure, with the
+/// config still asking for the bus.
+fn capture_usb_baseline() -> Option<(DeviceSnapshot, UsbNames)> {
     let snapshot = match usb::enumerate_devices() {
         Ok(s) => s,
         Err(e) => {
             error!("failed to enumerate USB devices: {e}");
-            std::process::exit(1);
+            return None;
         }
     };
 
@@ -1166,7 +1183,7 @@ fn capture_usb_baseline() -> (DeviceSnapshot, HashMap<(String, String), String>)
         info!("  {id}{name} (count: {count})");
     }
 
-    (snapshot, names)
+    Some((snapshot, names))
 }
 
 /// Capture Thunderbolt baseline, returning None if hardware not present.
@@ -1294,9 +1311,18 @@ fn capture_baselines(
     }
 
     if cfg.general.watch_usb && !(only_missing && bl.usb.is_some()) {
-        let (snapshot, names) = capture_usb_baseline();
-        bl.usb = Some(snapshot);
-        bl.names.usb = names;
+        match capture_usb_baseline() {
+            Some((snapshot, names)) => {
+                bl.usb = Some(snapshot);
+                bl.names.usb = names;
+            }
+            // Not an exit: this runs on reload and re-arm, where exiting would
+            // restart-loop against a config that still asks for the bus.
+            None => {
+                warn!("USB baseline failed, monitoring disabled until the next re-baseline");
+                bl.usb = None;
+            }
+        }
     }
     if cfg.general.watch_thunderbolt && !(only_missing && bl.thunderbolt.is_some()) {
         let (snapshot, names) = capture_thunderbolt_baseline(cfg);
@@ -1394,8 +1420,8 @@ mod tests {
 
     /// Only the display bus is on. Display is the one bus a unit test can
     /// drive: `display_generation` hashes whatever sysfs offers and cannot
-    /// fail, while `capture_usb_baseline` calls `process::exit(1)` when
-    /// enumeration fails, which would take the test harness with it.
+    /// fail, while the USB, Thunderbolt and SD card captures need a real
+    /// sysfs and so produce a different result per host.
     /// `Config::default()` already leaves power/network/lid/pci/display off
     /// and usb/thunderbolt/sdcard on, so only four flags need setting.
     fn display_only_config() -> config::Config {

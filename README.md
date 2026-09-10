@@ -130,7 +130,7 @@ A reload applies:
 - `general.sleep_ms`, from the next poll onward
 - `general.log_file`, used by the next kill event
 - The three whitelist sections, from the next poll onward
-- The `watch_*` switches. A bus you turn off stops being checked and drops its baseline, and a bus you turn on gets a fresh baseline captured during the reload
+- The `watch_*` switches. A bus you turn off stops being checked and drops its baseline, and a bus you turn on gets a fresh baseline captured during the reload. If that capture fails, the daemon warns and leaves the bus unmonitored instead of exiting
 - The `[power]`, `[network]`, `[lid]`, `[pci]` and `[display]` sections, from the next poll onward
 - The `[destruction]` and `[commands]` sections, read when a kill fires
 
@@ -423,7 +423,7 @@ plugkill reads lid state from devd's event socket (`/var/run/devd.pipe`), which 
 3. If any unauthorized change is detected:
    - In **enforce mode**: the kill sequence fires (mask signals, shred files, run commands, sync, wipe swap, self-destruct, power off)
    - In **learn mode**: the violation is logged and counted, but no action is taken
-4. Once a bus has a baseline, plugkill treats USB, Thunderbolt, or SD card enumeration failure as tampering. PCI enumeration failure only logs a warning. A baseline that fails to capture is a separate case: Thunderbolt, SD card, and PCI log a warning and leave that bus unmonitored until the next re-baseline (`--arm`, disarm timeout expiry, or `--reload`), while `--status` keeps reporting the bus as watched because that field reads the config flag
+4. Once a bus has a baseline, plugkill treats USB, Thunderbolt, or SD card enumeration failure as tampering. PCI enumeration failure only logs a warning. A baseline that fails to capture is a separate case: a USB failure at startup exits, while a USB failure on reload or re-arm and any Thunderbolt, SD card, or PCI failure logs a warning and leaves that bus unmonitored until the next re-baseline (`--arm`, disarm timeout expiry, or `--reload`), with `--status` still reporting the bus as watched because that field reads the config flag
 5. Power monitoring (if enabled) tracks AC/battery transitions with configurable grace periods and optional session lock detection via D-Bus logind
 6. Network monitoring (if enabled) detects link-down transitions on physical NICs via sysfs operstate
 7. Lid monitoring (if enabled) detects lid close via D-Bus logind (with procfs fallback) and acquires a sleep inhibitor to act before suspend
