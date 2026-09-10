@@ -10,6 +10,9 @@ pub struct DaemonState {
     pub violations_logged: u64,
     pub last_poll: Option<Instant>,
     pub reload_pending: bool,
+    /// Set on re-arm (socket `arm` command or disarm-timeout expiry). The main
+    /// loop takes it, re-captures every enabled bus baseline, and clears it.
+    pub rebaseline_pending: bool,
     /// When power went from AC to Battery (for grace period tracking).
     pub power_unplug_at: Option<Instant>,
     /// Whether the trigger-once policy has already fired and needs re-arm.
@@ -30,6 +33,7 @@ impl DaemonState {
             violations_logged: 0,
             last_poll: None,
             reload_pending: false,
+            rebaseline_pending: false,
             power_unplug_at: None,
             power_trigger_once_fired: false,
             network_link_down_at: None,

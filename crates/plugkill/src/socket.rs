@@ -225,7 +225,7 @@ fn handle_arm(state: &Arc<Mutex<DaemonState>>) -> Response {
     let mut st = state.lock().unwrap();
     st.armed = true;
     st.disarm_until = None;
-    // baselines are re-captured by the main loop on re-arm
+    st.rebaseline_pending = true;
     info!("daemon armed via socket command (baselines will be re-captured)");
 
     Response::ok(serde_json::json!({
@@ -269,5 +269,86 @@ pub fn cleanup_socket(socket_path: &Path) {
         && let Err(e) = std::fs::remove_file(socket_path)
     {
         warn!("failed to remove socket {}: {e}", socket_path.display());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use plugkill_core::state::DeviceNames;
+
+    /// Helper: bind a listener on a socket inside a fresh temp dir.
+    /// Returns (tempdir guard, socket path, the shared state the listener mutates).
+    fn start_test_listener() -> (tempfile::TempDir, PathBuf, Arc<Mutex<DaemonState>>) {
+        let dir = tempfile::tempdir().unwrap();
+        let socket_path = dir.path().join("plugkill.sock");
+        let state = Arc::new(Mutex::new(DaemonState::new(DaemonMode::Enforce)));
+        let config = Arc::new(RwLock::new(Config::default()));
+        let baselines = Arc::new(RwLock::new(Baselines {
+            usb: None,
+            thunderbolt: None,
+            sdcard: None,
+            power: None,
+            network: None,
+            lid: None,
+            pci: None,
+            display: None,
+            names: DeviceNames::default(),
+        }));
+
+        start_socket_listener(
+            socket_path.clone(),
+            None,
+            Arc::clone(&state),
+            config,
+            baselines,
+        )
+        .unwrap();
+
+        (dir, socket_path, state)
+    }
+
+    fn send(socket_path: &Path, request: serde_json::Value) -> serde_json::Value {
+        let resp = plugkill_core::ipc::send_request(socket_path, &request)
+            .unwrap_or_else(|e| panic!("request {request} failed: {e}"));
+        assert!(
+            resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
+            "request {request} rejected: {resp}"
+        );
+        resp
+    }
+
+    /// A manual `plugkill --arm` must schedule a baseline re-capture, otherwise
+    /// it re-arms against the baseline captured before the disarm window and
+    /// any device attached during that window becomes accepted state.
+    #[test]
+    fn test_socket_arm_sets_rebaseline_pending() {
+        let (_dir, socket_path, state) = start_test_listener();
+
+        send(
+            &socket_path,
+            serde_json::json!({"command": "disarm", "timeout_secs": 60}),
+        );
+        {
+            let st = state.lock().unwrap();
+            assert!(!st.armed, "disarm must clear armed");
+            assert!(
+                !st.rebaseline_pending,
+                "disarm must not schedule a re-baseline"
+            );
+        }
+
+        send(&socket_path, serde_json::json!({"command": "arm"}));
+
+        let st = state.lock().unwrap();
+        assert!(st.armed, "arm must set armed");
+        assert!(
+            st.disarm_until.is_none(),
+            "arm must clear the disarm window"
+        );
+        assert!(
+            st.rebaseline_pending,
+            "arm must schedule a baseline re-capture"
+        );
     }
 }

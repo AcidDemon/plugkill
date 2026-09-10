@@ -521,9 +521,6 @@ fn main() {
         warn!("failed to start control socket: {e} (continuing without socket)");
     }
 
-    // Track whether we need to re-capture baselines after re-arm
-    let mut needs_rebaseline = false;
-
     let sleep_duration = {
         let cfg = config_arc.read().unwrap();
         Duration::from_millis(cfg.general.sleep_ms)
@@ -544,11 +541,18 @@ fn main() {
                 info!("disarm timeout expired, re-arming");
                 st.armed = true;
                 st.disarm_until = None;
-                needs_rebaseline = true;
+                st.rebaseline_pending = true;
             }
         }
 
-        // Handle re-baseline after re-arm (from timeout or socket arm command)
+        // Handle re-baseline after re-arm (from timeout or socket arm command).
+        // Take the flag in its own scope: the block below re-locks daemon_state
+        // for the power, network and lid baselines, so the guard must be gone
+        // before it runs.
+        let needs_rebaseline = {
+            let mut st = daemon_state.lock().unwrap();
+            std::mem::take(&mut st.rebaseline_pending)
+        };
         if needs_rebaseline {
             let cfg = config_arc.read().unwrap();
             let mut bl = baselines.write().unwrap();
@@ -608,7 +612,6 @@ fn main() {
                 bl.display = Some(display::display_generation(&cfg.display.ignore));
                 info!("display re-baseline captured");
             }
-            needs_rebaseline = false;
         }
 
         // Handle config reload
