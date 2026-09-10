@@ -163,7 +163,7 @@ devices = [
 [destruction]
 files_to_remove = []             # files to securely shred (3-pass random overwrite)
 folders_to_remove = []           # directories to recursively shred
-melt_self = false                # delete plugkill binary, config dir and log dir after kill
+melt_self = false                # delete plugkill binary, the dir holding this config, and /var/log/plugkill after kill
 do_sync = true                   # sync filesystems before shutdown
 do_wipe_swap = false             # overwrite swap partition
 # swap_device = "/dev/sda2"     # required if do_wipe_swap = true
