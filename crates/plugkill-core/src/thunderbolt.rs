@@ -158,7 +158,7 @@ pub fn enumerate_thunderbolt_devices_from(sysfs_root: &Path) -> Result<Thunderbo
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                warn!("error reading sysfs directory entry: {e}");
+                warn!("error reading Thunderbolt sysfs directory entry: {e}");
                 continue;
             }
         };
@@ -247,7 +247,7 @@ pub fn enumerate_thunderbolt_devices_detailed_from(
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                warn!("error reading sysfs directory entry: {e}");
+                warn!("error reading Thunderbolt sysfs directory entry: {e}");
                 continue;
             }
         };

@@ -218,7 +218,7 @@ pub fn enumerate_devices_from(sysfs_root: &Path) -> Result<DeviceSnapshot, Error
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                warn!("error reading sysfs directory entry: {e}");
+                warn!("error reading USB sysfs directory entry: {e}");
                 continue;
             }
         };
@@ -294,7 +294,7 @@ pub fn enumerate_devices_detailed_from(sysfs_root: &Path) -> Result<Vec<UsbDevic
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                warn!("error reading sysfs directory entry: {e}");
+                warn!("error reading USB sysfs directory entry: {e}");
                 continue;
             }
         };

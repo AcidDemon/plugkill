@@ -55,7 +55,13 @@ pub fn parse_acline(acline: Option<i64>) -> PowerState {
 pub fn read_power_state_from(sysfs_root: &Path) -> PowerState {
     let entries = match fs::read_dir(sysfs_root) {
         Ok(e) => e,
-        Err(_) => return PowerState::Unknown,
+        Err(e) => {
+            warn!(
+                "cannot read power sysfs directory {}: {e}",
+                sysfs_root.display()
+            );
+            return PowerState::Unknown;
+        }
     };
 
     let mut found_mains = false;
@@ -64,7 +70,7 @@ pub fn read_power_state_from(sysfs_root: &Path) -> PowerState {
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                warn!("error reading power_supply entry: {e}");
+                warn!("error reading power sysfs directory entry: {e}");
                 continue;
             }
         };

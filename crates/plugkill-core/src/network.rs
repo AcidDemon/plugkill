@@ -211,7 +211,7 @@ pub fn enumerate_interfaces_from(sysfs_root: &Path, filter: &[String]) -> Networ
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                warn!("error reading network sysfs entry: {e}");
+                warn!("error reading network sysfs directory entry: {e}");
                 continue;
             }
         };

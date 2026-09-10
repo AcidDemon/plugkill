@@ -159,7 +159,7 @@ pub fn enumerate_sdcard_devices_from(sysfs_root: &Path) -> Result<SdCardSnapshot
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                warn!("error reading sysfs directory entry: {e}");
+                warn!("error reading MMC sysfs directory entry: {e}");
                 continue;
             }
         };
@@ -311,7 +311,7 @@ pub fn enumerate_sdcard_devices_detailed_from(
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                warn!("error reading sysfs directory entry: {e}");
+                warn!("error reading MMC sysfs directory entry: {e}");
                 continue;
             }
         };
