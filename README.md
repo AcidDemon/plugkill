@@ -255,7 +255,7 @@ Utility (no root required):
   -V, --version             Print version
 ```
 
-The NixOS module always passes `--socket-group`, set from `services.plugkill.socketGroup` (default `plugkill`). plugkill then chowns the socket to that group and sets it mode 0660, so the group is the intended way to reach the socket without root. That also needs `/run/plugkill` itself to be traversable by the group, so check the runtime directory's owner and mode if a group member cannot connect.
+The NixOS module always passes `--socket-group`, set from `services.plugkill.socketGroup` (default `plugkill`). plugkill then chowns the socket to that group and sets it mode 0660, so the group is the intended way to reach the socket without root. The module ships `/run/plugkill` at mode 0755, so group members can traverse it and connect. The socket's own 0660 mode and group ownership are what restrict access.
 
 ## Installation
 

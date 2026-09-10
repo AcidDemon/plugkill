@@ -108,10 +108,12 @@ in
     # Create the plugkill group so GUI/CLI users can access the control socket
     users.groups.${cfg.socketGroup} = {};
 
-    # Create directories with correct ownership
+    # Create directories with correct ownership. RuntimeDirectory= below
+    # re-applies owner and mode to /run/plugkill on every start, so keep this
+    # rule in sync with RuntimeDirectoryMode rather than fighting it.
     systemd.tmpfiles.rules = [
       "d /var/log/plugkill 0750 root root -"
-      "d /run/plugkill 0750 root ${cfg.socketGroup} -"
+      "d /run/plugkill 0755 root root -"
     ];
 
     systemd.services.plugkill = {
@@ -161,7 +163,14 @@ in
         # Prefix with '-' so systemd ignores paths that don't exist on this machine
         ReadOnlyPaths = [ "-/sys/bus/usb/devices" "-/sys/bus/thunderbolt/devices" "-/sys/bus/mmc/devices" "-/sys/class/power_supply" "-/sys/class/net" "-/proc/acpi" ];
         RuntimeDirectory = "plugkill";
-        RuntimeDirectoryMode = "0750";
+        # 0755, not 0750: the unit runs as root:root, so a 0750 directory
+        # gives socketGroup members no traverse bit and they cannot reach the
+        # socket inside it. systemd chowns RuntimeDirectory to the unit's own
+        # user and group on every start, so the tmpfiles rule above cannot
+        # grant that traversal instead. The directory holds only the socket,
+        # whose 0660 mode and group ownership are the real access control, so
+        # traversal permission leaks nothing.
+        RuntimeDirectoryMode = "0755";
         ReadWritePaths = [
           "/var/log/plugkill"
           "/run/plugkill"
