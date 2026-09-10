@@ -435,7 +435,7 @@ pub fn print_device_list(devices: &[UsbDeviceInfo], whitelist: Option<&HashSet<(
     summary.sort_by(|a, b| a.0.cmp(&b.0));
 
     println!();
-    println!("Device ID summary (for whitelist configuration):");
+    println!("USB device ID summary (for whitelist configuration):");
     for ((vid, pid), (count, product)) in &summary {
         let name = product.as_deref().unwrap_or("Unknown device");
         let annotation = match whitelist {

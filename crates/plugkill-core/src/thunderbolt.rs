@@ -55,10 +55,8 @@ impl ThunderboltChange {
 impl fmt::Display for ThunderboltChange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ThunderboltChange::Added(id) => {
-                write!(f, "unauthorized thunderbolt device added: {id}")
-            }
-            ThunderboltChange::Removed(id) => write!(f, "thunderbolt device removed: {id}"),
+            ThunderboltChange::Added(id) => write!(f, "unauthorized device added: {id}"),
+            ThunderboltChange::Removed(id) => write!(f, "device removed: {id}"),
         }
     }
 }

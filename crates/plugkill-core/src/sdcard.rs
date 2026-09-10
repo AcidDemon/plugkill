@@ -55,8 +55,8 @@ impl SdCardChange {
 impl fmt::Display for SdCardChange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SdCardChange::Added(id) => write!(f, "unauthorized SD card added: {id}"),
-            SdCardChange::Removed(id) => write!(f, "SD card removed: {id}"),
+            SdCardChange::Added(id) => write!(f, "unauthorized device added: {id}"),
+            SdCardChange::Removed(id) => write!(f, "device removed: {id}"),
         }
     }
 }

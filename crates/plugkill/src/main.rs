@@ -694,7 +694,9 @@ fn detect_violations(
                 }
             }
             Err(e) => {
-                return Some(format!("USB enumeration failure (possible tampering): {e}"));
+                return Some(format!(
+                    "USB VIOLATION: enumeration failure (possible tampering): {e}"
+                ));
             }
         }
     }
@@ -720,7 +722,7 @@ fn detect_violations(
             }
             Err(e) => {
                 return Some(format!(
-                    "Thunderbolt enumeration failure (possible tampering): {e}"
+                    "THUNDERBOLT VIOLATION: enumeration failure (possible tampering): {e}"
                 ));
             }
         }
@@ -746,7 +748,7 @@ fn detect_violations(
             }
             Err(e) => {
                 return Some(format!(
-                    "SD card enumeration failure (possible tampering): {e}"
+                    "SD CARD VIOLATION: enumeration failure (possible tampering): {e}"
                 ));
             }
         }
@@ -1220,9 +1222,9 @@ fn capture_baselines(
     }
     if cfg.general.watch_power && !(only_missing && bl.power.is_some()) {
         let state = power::read_power_state();
-        info!("power re-baseline: {state}");
+        info!("power baseline: {state}");
         bl.power = Some(state);
-        // Reset power trigger state on re-baseline
+        // Reset power trigger state on baseline capture
         let mut st = daemon_state.lock().unwrap();
         st.power_unplug_at = None;
         st.power_trigger_once_fired = false;
@@ -1230,7 +1232,7 @@ fn capture_baselines(
     if cfg.general.watch_network && !(only_missing && bl.network.is_some()) {
         let snapshot = network::enumerate_interfaces(&cfg.network.interfaces);
         info!(
-            "network re-baseline: {} interface(s)",
+            "network baseline: {} interface(s)",
             snapshot.interfaces().len()
         );
         bl.network = Some(snapshot);
@@ -1239,7 +1241,7 @@ fn capture_baselines(
     }
     if cfg.general.watch_lid && !(only_missing && bl.lid.is_some()) {
         let state = lid::read_lid_state();
-        info!("lid re-baseline: {state}");
+        info!("lid baseline: {state}");
         bl.lid = Some(state);
         let mut st = daemon_state.lock().unwrap();
         st.lid_close_at = None;
@@ -1247,15 +1249,15 @@ fn capture_baselines(
     if cfg.general.watch_pci && !(only_missing && bl.pci.is_some()) {
         match pci::enumerate_pci(&cfg.pci.ignore) {
             Ok(snapshot) => {
-                info!("PCI re-baseline: {} device(s)", snapshot.len());
+                info!("PCI baseline: {} device(s)", snapshot.len());
                 bl.pci = Some(snapshot);
             }
-            Err(e) => warn!("PCI re-baseline failed: {e}"),
+            Err(e) => warn!("PCI baseline failed: {e}"),
         }
     }
     if cfg.general.watch_display && !(only_missing && bl.display.is_some()) {
         bl.display = Some(display::display_generation(&cfg.display.ignore));
-        info!("display re-baseline captured");
+        info!("display baseline captured");
     }
 }
 

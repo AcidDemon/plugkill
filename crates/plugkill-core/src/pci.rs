@@ -20,8 +20,8 @@ pub enum PciChange {
 impl fmt::Display for PciChange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PciChange::Added(s) => write!(f, "unauthorized PCI device added: {s}"),
-            PciChange::Removed(s) => write!(f, "PCI device removed: {s}"),
+            PciChange::Added(s) => write!(f, "unauthorized device added: {s}"),
+            PciChange::Removed(s) => write!(f, "device removed: {s}"),
         }
     }
 }
