@@ -1160,7 +1160,12 @@ fn capture_thunderbolt_baseline(
             }
             (Some(snapshot), names)
         }
-        Err(_) => {
+        Err(e) => {
+            // Never silent: the baseline stays None, the checker short-circuits
+            // on None forever, and --status still reports thunderbolt_watching
+            // from the config flag, so without this line the bus is
+            // unmonitored behind a positive watching indicator.
+            warn!("Thunderbolt baseline failed, monitoring disabled: {e}");
             if !cfg.thunderbolt_whitelist.devices.is_empty() {
                 warn!("thunderbolt_whitelist configured but no thunderbolt hardware found");
             }
@@ -1197,7 +1202,9 @@ fn capture_sdcard_baseline(
             }
             (Some(snapshot), names)
         }
-        Err(_) => {
+        Err(e) => {
+            // Same reasoning as the Thunderbolt arm above.
+            warn!("SD card baseline failed, monitoring disabled: {e}");
             if !cfg.sdcard_whitelist.devices.is_empty() {
                 warn!("sdcard_whitelist configured but no MMC bus found");
             }

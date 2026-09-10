@@ -423,11 +423,11 @@ plugkill reads lid state from devd's event socket (`/var/run/devd.pipe`), which 
 3. If any unauthorized change is detected:
    - In **enforce mode**: the kill sequence fires (mask signals, shred files, run commands, sync, wipe swap, self-destruct, power off)
    - In **learn mode**: the violation is logged and counted, but no action is taken
-4. If USB, Thunderbolt, or SD card enumeration fails, this is treated as tampering. PCI enumeration failure only logs a warning, and a PCI baseline that fails at startup leaves PCI monitoring off until the next re-baseline (`--arm`, disarm timeout expiry, or `--reload`)
+4. Once a bus has a baseline, plugkill treats USB, Thunderbolt, or SD card enumeration failure as tampering. PCI enumeration failure only logs a warning. A baseline that fails to capture is a separate case: Thunderbolt, SD card, and PCI log a warning and leave that bus unmonitored until the next re-baseline (`--arm`, disarm timeout expiry, or `--reload`), while `--status` keeps reporting the bus as watched because that field reads the config flag
 5. Power monitoring (if enabled) tracks AC/battery transitions with configurable grace periods and optional session lock detection via D-Bus logind
 6. Network monitoring (if enabled) detects link-down transitions on physical NICs via sysfs operstate
 7. Lid monitoring (if enabled) detects lid close via D-Bus logind (with procfs fallback) and acquires a sleep inhibitor to act before suspend
-8. Buses that lack hardware (no Thunderbolt controller, no MMC bus) are silently skipped
+8. Buses that lack hardware (no Thunderbolt controller, no MMC bus) are skipped with a warning naming the bus
 
 ## Origin
 
