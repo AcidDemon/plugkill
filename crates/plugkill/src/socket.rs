@@ -256,7 +256,10 @@ fn handle_disarm(state: &Arc<Mutex<DaemonState>>, timeout_secs: u64) -> Response
     let mut st = state.lock().unwrap();
     st.armed = false;
     st.disarm_until = Some(Instant::now() + Duration::from_secs(timeout_secs));
-    info!("daemon disarmed for {timeout_secs}s via socket command");
+    info!(
+        "daemon disarmed for {} via socket command",
+        format_duration(timeout_secs)
+    );
 
     Response::ok(serde_json::json!({
         "message": format!("disarmed for {}", format_duration(timeout_secs)),
