@@ -61,11 +61,8 @@ impl Response {
     }
 }
 
-/// Send a request to the daemon and return the parsed JSON response.
-pub fn send_request(
-    socket_path: &Path,
-    request: &serde_json::Value,
-) -> Result<serde_json::Value, String> {
+/// Connect to the daemon, send one JSON request, and return the response line.
+fn request_line(socket_path: &Path, request: &serde_json::Value) -> Result<String, String> {
     let stream = UnixStream::connect(socket_path).map_err(|e| {
         format!(
             "cannot connect to daemon socket {}: {e} (is the daemon running?)",
@@ -89,65 +86,59 @@ pub fn send_request(
         .flush()
         .map_err(|e| format!("failed to flush: {e}"))?;
 
-    let mut lines = reader.lines();
-    match lines.next() {
-        Some(Ok(line)) => {
-            serde_json::from_str(&line).map_err(|e| format!("invalid JSON response: {e}"))
-        }
+    match reader.lines().next() {
+        Some(Ok(line)) => Ok(line),
         Some(Err(e)) => Err(format!("failed to read response: {e}")),
         None => Err("no response from daemon".to_string()),
     }
+}
+
+/// Send a request to the daemon and return the parsed JSON response.
+///
+/// The whole envelope comes back, `ok: false` included: callers such as the
+/// relay's trigger and the tray inspect `ok` themselves.
+pub fn send_request(
+    socket_path: &Path,
+    request: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let line = request_line(socket_path, request)?;
+    serde_json::from_str(&line).map_err(|e| format!("invalid JSON response: {e}"))
 }
 
 /// Send a request to the daemon and print the response.
 ///
 /// When `raw_json` is true, the response is pretty-printed as JSON.
 /// Otherwise, a human-readable summary is printed.
+///
+/// A daemon that answers `ok: false` rejected the command, so its error is
+/// returned rather than printed: the caller's exit code has to show it.
 pub fn send_command(
     socket_path: &Path,
     request: &serde_json::Value,
     raw_json: bool,
 ) -> Result<(), String> {
-    let stream = UnixStream::connect(socket_path).map_err(|e| {
-        format!(
-            "cannot connect to daemon socket {}: {e} (is the daemon running?)",
-            socket_path.display()
-        )
-    })?;
+    let line = request_line(socket_path, request)?;
 
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .map_err(|e| format!("failed to set socket timeout: {e}"))?;
-
-    let mut writer = &stream;
-    let reader = BufReader::new(&stream);
-
-    let mut req_json = serde_json::to_string(request).map_err(|e| format!("JSON error: {e}"))?;
-    req_json.push('\n');
-    writer
-        .write_all(req_json.as_bytes())
-        .map_err(|e| format!("failed to send command: {e}"))?;
-    writer
-        .flush()
-        .map_err(|e| format!("failed to flush: {e}"))?;
-
-    let mut lines = reader.lines();
-    match lines.next() {
-        Some(Ok(line)) => {
-            if raw_json {
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
-                    println!("{}", serde_json::to_string_pretty(&value).unwrap_or(line));
-                } else {
-                    println!("{line}");
-                }
-            } else {
-                print_human_response(&line);
-            }
-            Ok(())
-        }
-        Some(Err(e)) => Err(format!("failed to read response: {e}")),
-        None => Err("no response from daemon".to_string()),
+    if let Ok(resp) = serde_json::from_str::<serde_json::Value>(&line)
+        && resp.get("ok").and_then(|v| v.as_bool()) != Some(true)
+    {
+        return Err(resp
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error")
+            .to_string());
     }
+
+    if raw_json {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+            println!("{}", serde_json::to_string_pretty(&value).unwrap_or(line));
+        } else {
+            println!("{line}");
+        }
+    } else {
+        print_human_response(&line);
+    }
+    Ok(())
 }
 
 fn format_duration(secs: u64) -> String {
@@ -163,22 +154,13 @@ fn format_duration(secs: u64) -> String {
     }
 }
 
+/// Render a successful response envelope. `send_command` has already turned an
+/// `ok: false` envelope into an error, so only the success shapes get here.
 fn print_human_response(line: &str) {
     let Ok(resp) = serde_json::from_str::<serde_json::Value>(line) else {
         println!("{line}");
         return;
     };
-
-    let ok = resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
-
-    if !ok {
-        let msg = resp
-            .get("error")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown error");
-        eprintln!("Error: {msg}");
-        return;
-    }
 
     let Some(data) = resp.get("data") else {
         println!("OK");
@@ -279,6 +261,8 @@ fn print_human_response(line: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::net::UnixListener;
+    use tempfile::TempDir;
 
     #[test]
     fn test_kill_request_deserializes() {
@@ -295,5 +279,52 @@ mod tests {
     fn test_kill_request_requires_reason() {
         let err = serde_json::from_str::<Request>(r#"{"command":"kill"}"#).unwrap_err();
         assert!(err.to_string().contains("reason"));
+    }
+
+    /// Serve exactly one request on a fresh socket and answer with `response`.
+    /// The TempDir is returned so the caller keeps the socket alive.
+    fn serve_once(response: &'static str) -> (TempDir, std::path::PathBuf) {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("plugkill.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut req = String::new();
+            BufReader::new(&stream).read_line(&mut req).unwrap();
+            let mut writer = &stream;
+            writeln!(writer, "{response}").unwrap();
+            writer.flush().unwrap();
+        });
+        (dir, path)
+    }
+
+    #[test]
+    fn test_send_command_errors_on_not_ok_envelope() {
+        let (_dir, path) = serve_once(r#"{"ok":false,"error":"timeout_secs must be > 0"}"#);
+        let req = serde_json::json!({"command": "disarm", "timeout_secs": 0});
+
+        let err = send_command(&path, &req, false).unwrap_err();
+
+        assert_eq!(err, "timeout_secs must be > 0");
+    }
+
+    #[test]
+    fn test_send_command_accepts_ok_envelope() {
+        let (_dir, path) = serve_once(r#"{"ok":true,"data":{"message":"disarmed for 60s"}}"#);
+        let req = serde_json::json!({"command": "disarm", "timeout_secs": 60});
+
+        assert!(send_command(&path, &req, false).is_ok());
+    }
+
+    #[test]
+    fn test_send_request_returns_whole_envelope() {
+        let (_dir, path) = serve_once(r#"{"ok":false,"error":"nope"}"#);
+        let req = serde_json::json!({"command": "kill", "reason": "test"});
+
+        // send_request must not judge the envelope: the relay reads resp["ok"].
+        let resp = send_request(&path, &req).unwrap();
+
+        assert_eq!(resp["ok"], serde_json::Value::Bool(false));
+        assert_eq!(resp["error"], "nope");
     }
 }
