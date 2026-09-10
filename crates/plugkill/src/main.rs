@@ -143,7 +143,7 @@ fn main() {
         match usb::enumerate_devices_detailed() {
             Ok(devices) => print!("{}", usb::generate_whitelist_toml(&devices)),
             Err(e) => {
-                error!("failed to enumerate USB devices: {e}");
+                eprintln!("Error: failed to enumerate USB devices: {e}");
                 std::process::exit(1);
             }
         }
@@ -183,7 +183,7 @@ fn main() {
                 usb::print_device_list(&devices, whitelist_ids.as_ref());
             }
             Err(e) => {
-                error!("failed to enumerate USB devices: {e}");
+                eprintln!("Error: failed to enumerate USB devices: {e}");
                 std::process::exit(1);
             }
         }
@@ -221,7 +221,7 @@ fn main() {
     if let Some(timeout) = cli.disarm {
         let req = serde_json::json!({"command": "disarm", "timeout_secs": timeout});
         if let Err(e) = ipc::send_command(&cli.socket, &req, raw_json) {
-            error!("{e}");
+            eprintln!("Error: {e}");
             std::process::exit(1);
         }
         return;
@@ -229,7 +229,7 @@ fn main() {
     if cli.arm {
         let req = serde_json::json!({"command": "arm"});
         if let Err(e) = ipc::send_command(&cli.socket, &req, raw_json) {
-            error!("{e}");
+            eprintln!("Error: {e}");
             std::process::exit(1);
         }
         return;
@@ -237,7 +237,7 @@ fn main() {
     if cli.status {
         let req = serde_json::json!({"command": "status"});
         if let Err(e) = ipc::send_command(&cli.socket, &req, raw_json) {
-            error!("{e}");
+            eprintln!("Error: {e}");
             std::process::exit(1);
         }
         return;
@@ -245,7 +245,7 @@ fn main() {
     if cli.learn {
         let req = serde_json::json!({"command": "learn"});
         if let Err(e) = ipc::send_command(&cli.socket, &req, raw_json) {
-            error!("{e}");
+            eprintln!("Error: {e}");
             std::process::exit(1);
         }
         return;
@@ -253,7 +253,7 @@ fn main() {
     if cli.enforce {
         let req = serde_json::json!({"command": "enforce"});
         if let Err(e) = ipc::send_command(&cli.socket, &req, raw_json) {
-            error!("{e}");
+            eprintln!("Error: {e}");
             std::process::exit(1);
         }
         return;
@@ -261,7 +261,7 @@ fn main() {
     if cli.reload {
         let req = serde_json::json!({"command": "reload"});
         if let Err(e) = ipc::send_command(&cli.socket, &req, raw_json) {
-            error!("{e}");
+            eprintln!("Error: {e}");
             std::process::exit(1);
         }
         return;

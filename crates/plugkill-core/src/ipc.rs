@@ -141,7 +141,8 @@ pub fn send_command(
     Ok(())
 }
 
-fn format_duration(secs: u64) -> String {
+/// Render a whole-second duration as `1h 2m 5s`, dropping empty leading units.
+pub fn format_duration(secs: u64) -> String {
     let h = secs / 3600;
     let m = (secs % 3600) / 60;
     let s = secs % 60;
@@ -202,7 +203,7 @@ fn print_human_response(line: &str) {
             .get("pci_devices")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
-        println!("Devices:    {usb} USB, {tb} Thunderbolt, {sd} SD card, {pci} PCI");
+        println!("Devices:    {usb} USB IDs, {tb} Thunderbolt, {sd} SD card, {pci} PCI");
 
         let mut watching = Vec::new();
         if data.get("usb_watching").and_then(|v| v.as_bool()) == Some(true) {
@@ -215,19 +216,19 @@ fn print_human_response(line: &str) {
             watching.push("SD card");
         }
         if data.get("power_watching").and_then(|v| v.as_bool()) == Some(true) {
-            watching.push("Power");
+            watching.push("power supply");
         }
         if data.get("network_watching").and_then(|v| v.as_bool()) == Some(true) {
-            watching.push("Network");
+            watching.push("network");
         }
         if data.get("lid_watching").and_then(|v| v.as_bool()) == Some(true) {
-            watching.push("Lid");
+            watching.push("lid");
         }
         if data.get("pci_watching").and_then(|v| v.as_bool()) == Some(true) {
             watching.push("PCI");
         }
         if data.get("display_watching").and_then(|v| v.as_bool()) == Some(true) {
-            watching.push("Display");
+            watching.push("display");
         }
         if !watching.is_empty() {
             println!("Watching:   {}", watching.join(", "));
@@ -326,5 +327,13 @@ mod tests {
 
         assert_eq!(resp["ok"], serde_json::Value::Bool(false));
         assert_eq!(resp["error"], "nope");
+    }
+
+    #[test]
+    fn test_format_duration_units() {
+        assert_eq!(format_duration(0), "0s");
+        assert_eq!(format_duration(45), "45s");
+        assert_eq!(format_duration(90), "1m 30s");
+        assert_eq!(format_duration(3725), "1h 2m 5s");
     }
 }

@@ -1,7 +1,7 @@
 use crate::daemon_state::DaemonState;
 use log::{error, info, warn};
 use plugkill_core::config::Config;
-use plugkill_core::ipc::{Request, Response};
+use plugkill_core::ipc::{Request, Response, format_duration};
 use plugkill_core::state::{Baselines, DaemonMode};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -259,7 +259,7 @@ fn handle_disarm(state: &Arc<Mutex<DaemonState>>, timeout_secs: u64) -> Response
     info!("daemon disarmed for {timeout_secs}s via socket command");
 
     Response::ok(serde_json::json!({
-        "message": format!("disarmed for {timeout_secs} seconds"),
+        "message": format!("disarmed for {}", format_duration(timeout_secs)),
         "disarm_until_secs": timeout_secs,
     }))
 }
@@ -564,5 +564,15 @@ mod tests {
             0,
             "an unauthorized request must not be counted as a learn-mode violation"
         );
+    }
+
+    #[test]
+    fn test_disarm_message_uses_format_duration() {
+        let st = state();
+        let resp = handle_disarm(&st, 90);
+        assert!(resp.ok);
+        let data = resp.data.expect("disarm response carries data");
+        assert_eq!(data["message"], "disarmed for 1m 30s");
+        assert_eq!(data["disarm_until_secs"], 90);
     }
 }

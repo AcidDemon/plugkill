@@ -236,3 +236,15 @@ fn test_client_reload_fails_no_daemon() {
         .failure()
         .stderr(predicates::str::contains("cannot connect"));
 }
+
+#[test]
+fn test_client_error_stderr_has_error_prefix() {
+    Command::cargo_bin("plugkill")
+        .unwrap()
+        .arg("--status")
+        .arg("--socket")
+        .arg("/tmp/plugkill-test-nonexistent.sock")
+        .assert()
+        .failure()
+        .stderr(predicates::str::starts_with("Error: cannot connect"));
+}
