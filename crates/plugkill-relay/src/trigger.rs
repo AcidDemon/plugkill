@@ -89,6 +89,21 @@ mod tests {
         assert!(why.contains("cannot connect"));
     }
 
+    /// A learn-mode daemon refuses the kill rather than swallowing it, so the
+    /// node still goes down. Pins the specific refusal `socket::handle_kill`
+    /// sends; `test_ok_false_falls_back_to_poweroff` covers the general shape.
+    #[test]
+    fn test_learn_mode_refusal_falls_back_to_poweroff() {
+        let resp = Ok(serde_json::json!({
+            "ok": false,
+            "error": "daemon in learn mode, refusing remote kill"
+        }));
+        let Outcome::Poweroff(why) = classify(resp) else {
+            panic!("expected Outcome::Poweroff");
+        };
+        assert!(why.contains("learn mode"));
+    }
+
     #[test]
     fn test_missing_ok_field_falls_back_to_poweroff() {
         // A response we cannot read as success is not success.

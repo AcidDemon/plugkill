@@ -91,6 +91,44 @@ fn set_socket_group(path: &Path, group: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Effective uid of the connected client, or `None` where the platform does
+/// not expose peer credentials. Callers must treat `None` as unprivileged.
+fn peer_uid(stream: &UnixStream) -> Option<u32> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
+        getsockopt(stream, PeerCredentials).ok().map(|c| c.uid())
+    }
+    #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "ios"))]
+    {
+        use nix::sys::socket::{getsockopt, sockopt::LocalPeerCred};
+        getsockopt(stream, LocalPeerCred).ok().map(|c| c.uid())
+    }
+    // ponytail: no other platform ships this daemon. Anything else fails
+    // closed via kill_authorized; add its sockopt here if a port needs kill.
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "macos",
+        target_os = "ios"
+    )))]
+    {
+        let _ = stream;
+        None
+    }
+}
+
+/// Whether a socket peer may run the kill command.
+///
+/// The socket is 0660 with an optional group for non-root GUI and CLI use, so
+/// every other command is deliberately reachable by that group. `kill` is the
+/// only destructive one, so it is restricted to root. `None` (peer credentials
+/// unavailable) is not root: this fails closed on purpose.
+fn kill_authorized(peer_uid: Option<u32>) -> bool {
+    peer_uid == Some(0)
+}
+
 fn handle_connection(
     stream: UnixStream,
     state: &Arc<Mutex<DaemonState>>,
@@ -99,6 +137,9 @@ fn handle_connection(
 ) -> std::io::Result<()> {
     // Set a read timeout so we don't hang forever on misbehaving clients
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+
+    // Read once here: handle_request no longer has the stream to ask.
+    let peer_uid = peer_uid(&stream);
 
     let reader = BufReader::new(&stream);
     let mut writer = &stream;
@@ -120,7 +161,7 @@ fn handle_connection(
         }
 
         let response = match serde_json::from_str::<Request>(&line) {
-            Ok(req) => handle_request(req, state, config, baselines),
+            Ok(req) => handle_request(req, state, config, baselines, peer_uid),
             Err(e) => Response::err(format!("invalid request: {e}")),
         };
 
@@ -139,6 +180,7 @@ fn handle_request(
     state: &Arc<Mutex<DaemonState>>,
     config: &Arc<RwLock<Config>>,
     baselines: &Arc<RwLock<Baselines>>,
+    peer_uid: Option<u32>,
 ) -> Response {
     match req {
         Request::Status => handle_status(state, config, baselines),
@@ -147,7 +189,7 @@ fn handle_request(
         Request::Learn => handle_learn(state),
         Request::Enforce => handle_enforce(state),
         Request::Reload => handle_reload(state),
-        Request::Kill { reason } => handle_kill(state, &reason),
+        Request::Kill { reason } => handle_kill(state, &reason, peer_uid),
     }
 }
 
@@ -266,10 +308,32 @@ fn handle_reload(state: &Arc<Mutex<DaemonState>>) -> Response {
 
 /// Record a kill request. The main loop runs the sequence: it owns the config
 /// and the single `kill::execute_kill_sequence` call site, so a socket kill
-/// honors dry_run, `[destruction]`, `commands.kill_commands` and the current
-/// mode exactly as a locally detected violation does.
-fn handle_kill(state: &Arc<Mutex<DaemonState>>, reason: &str) -> Response {
+/// honors dry_run, `[destruction]` and `commands.kill_commands` exactly as a
+/// locally detected violation does.
+///
+/// Refuses in two cases, both of which make the relay fall back to a direct
+/// poweroff rather than leaving the request silently unhonored:
+/// non-root peers, and learn mode.
+fn handle_kill(state: &Arc<Mutex<DaemonState>>, reason: &str, peer_uid: Option<u32>) -> Response {
+    // Authorization before mode: an unauthorized caller learns nothing about
+    // the daemon's state.
+    if !kill_authorized(peer_uid) {
+        warn!("refused kill command from non-root peer uid {peer_uid:?}: {reason}");
+        return Response::err("kill requires root");
+    }
+
     let mut st = state.lock().unwrap();
+
+    // Learn mode does not suppress a peer's kill. Unlike a local violation it
+    // carries no uncalibrated-baseline false-positive risk, and swallowing it
+    // would let one `learn` command neutralize the fleet kill switch. Record it
+    // on the way out: the node is about to go down on the relay's fallback.
+    if st.mode == DaemonMode::Learn {
+        st.violations_logged += 1;
+        warn!("LEARN MODE: RELAY VIOLATION: remote kill from peer: {reason}");
+        return Response::err("daemon in learn mode, refusing remote kill");
+    }
+
     st.kill_pending = Some(reason.to_string());
     error!("kill sequence requested via socket command: {reason}");
 
@@ -371,29 +435,78 @@ mod tests {
         Arc::new(Mutex::new(DaemonState::new(DaemonMode::Enforce)))
     }
 
-    /// The wire path the relay actually uses: a `kill` line over a real socket
-    /// has to reach `handle_kill`. Covers the dispatch arm between
-    /// `Request::Kill` and the handler, which the two tests below bypass.
+    /// `peer_uid` must actually read the peer's uid on this platform. Without
+    /// this, a `getsockopt` that always failed would look identical to a
+    /// working gate in every other test here (`None` denies, and denial is what
+    /// they assert) while in production it would deny root too and reduce every
+    /// remote kill to a bare poweroff with nothing shredded.
     #[test]
-    fn test_socket_kill_command_sets_kill_pending() {
-        let (_dir, socket_path, state) = start_test_listener();
-
-        send(
-            &socket_path,
-            serde_json::json!({"command": "kill", "reason": "peer alpha lost AC power"}),
-        );
+    fn test_peer_uid_reads_the_connecting_uid() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cred.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let _client = UnixStream::connect(&path).unwrap();
+        let (server_side, _) = listener.accept().unwrap();
 
         assert_eq!(
-            state.lock().unwrap().kill_pending.as_deref(),
-            Some("peer alpha lost AC power"),
-            "a kill command must queue the reason for the main loop"
+            peer_uid(&server_side),
+            Some(nix::unistd::geteuid().as_raw()),
+            "peer credentials must be readable, or the kill gate denies everyone"
+        );
+    }
+
+    /// Only root may run the kill command. Peer credentials we cannot read are
+    /// not root either: unknown must fail closed, or an unsupported platform
+    /// silently becomes an open destructive endpoint.
+    #[test]
+    fn test_kill_authorized_only_for_root() {
+        assert!(kill_authorized(Some(0)), "root may kill");
+        assert!(!kill_authorized(Some(1000)), "a normal user may not kill");
+        assert!(
+            !kill_authorized(None),
+            "unavailable peer credentials must fail closed"
+        );
+    }
+
+    /// The wire path the relay actually uses: a `kill` line over a real socket
+    /// has to reach `handle_kill`. Covers the dispatch arm between
+    /// `Request::Kill` and the handler. The test process is not root, so this
+    /// connection is itself the unauthorized case, which is what the socket
+    /// being group-writable exposes in production.
+    #[test]
+    fn test_socket_kill_command_refused_for_non_root() {
+        assert_ne!(
+            nix::unistd::geteuid().as_raw(),
+            0,
+            "this test must not run as root: it asserts the unauthorized path"
+        );
+        let (_dir, socket_path, state) = start_test_listener();
+
+        let resp = plugkill_core::ipc::send_request(
+            &socket_path,
+            &serde_json::json!({"command": "kill", "reason": "peer alpha lost AC power"}),
+        )
+        .expect("transport should succeed; the daemon should refuse at the application level");
+
+        assert_eq!(
+            resp.get("ok").and_then(|v| v.as_bool()),
+            Some(false),
+            "a non-root kill must be refused: {resp}"
+        );
+        assert!(
+            resp["error"].as_str().unwrap().contains("root"),
+            "the refusal must say it requires root: {resp}"
+        );
+        assert!(
+            state.lock().unwrap().kill_pending.is_none(),
+            "a refused kill must not queue anything for the main loop"
         );
     }
 
     #[test]
     fn test_handle_kill_sets_pending() {
         let st = state();
-        let resp = handle_kill(&st, "peer alpha lost AC power");
+        let resp = handle_kill(&st, "peer alpha lost AC power", Some(0));
         assert!(resp.ok);
         assert_eq!(
             st.lock().unwrap().kill_pending.as_deref(),
@@ -407,10 +520,49 @@ mod tests {
         // through the same path a local violation takes, so nothing here may
         // flip armed/mode or count a violation.
         let st = state();
-        handle_kill(&st, "test");
+        handle_kill(&st, "test", Some(0));
         let s = st.lock().unwrap();
         assert!(s.armed);
         assert_eq!(s.mode, DaemonMode::Enforce);
         assert_eq!(s.violations_logged, 0);
+    }
+
+    /// Learn mode must not silently swallow a peer's kill. Refusing with
+    /// `ok:false` is what makes the relay's `force_poweroff` fallback fire, so
+    /// a remote kill always has an effect.
+    #[test]
+    fn test_handle_kill_refused_in_learn_mode() {
+        let st = Arc::new(Mutex::new(DaemonState::new(DaemonMode::Learn)));
+
+        let resp = handle_kill(&st, "peer alpha lost AC power", Some(0));
+
+        assert!(!resp.ok, "learn mode must refuse, not silently accept");
+        assert!(resp.error.unwrap().contains("learn mode"));
+        let s = st.lock().unwrap();
+        assert!(
+            s.kill_pending.is_none(),
+            "learn mode must not queue a kill for the main loop"
+        );
+        assert_eq!(
+            s.violations_logged, 1,
+            "the refused kill must still be recorded locally"
+        );
+    }
+
+    /// Authorization is checked before mode, so a non-root kill is refused as
+    /// unauthorized rather than leaking whether the node is in learn mode.
+    #[test]
+    fn test_handle_kill_checks_authorization_before_mode() {
+        let st = Arc::new(Mutex::new(DaemonState::new(DaemonMode::Learn)));
+
+        let resp = handle_kill(&st, "test", Some(1000));
+
+        assert!(!resp.ok);
+        assert!(resp.error.unwrap().contains("root"));
+        assert_eq!(
+            st.lock().unwrap().violations_logged,
+            0,
+            "an unauthorized request must not be counted as a learn-mode violation"
+        );
     }
 }
