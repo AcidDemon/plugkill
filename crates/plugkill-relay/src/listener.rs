@@ -107,7 +107,7 @@ pub fn run(
                         Some(&packet.sender_id),
                     );
 
-                    trigger::trigger_local_kill(&config.general.plugkill_socket);
+                    trigger::trigger_local_kill(&config.general.plugkill_socket, &packet.reason);
                 }
             }
             PacketType::Ack => {}

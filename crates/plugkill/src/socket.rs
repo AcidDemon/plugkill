@@ -147,6 +147,7 @@ fn handle_request(
         Request::Learn => handle_learn(state),
         Request::Enforce => handle_enforce(state),
         Request::Reload => handle_reload(state),
+        Request::Kill { reason } => handle_kill(state, &reason),
     }
 }
 
@@ -263,6 +264,20 @@ fn handle_reload(state: &Arc<Mutex<DaemonState>>) -> Response {
     }))
 }
 
+/// Record a kill request. The main loop runs the sequence: it owns the config
+/// and the single `kill::execute_kill_sequence` call site, so a socket kill
+/// honors dry_run, `[destruction]`, `commands.kill_commands` and the current
+/// mode exactly as a locally detected violation does.
+fn handle_kill(state: &Arc<Mutex<DaemonState>>, reason: &str) -> Response {
+    let mut st = state.lock().unwrap();
+    st.kill_pending = Some(reason.to_string());
+    error!("kill sequence requested via socket command: {reason}");
+
+    Response::ok(serde_json::json!({
+        "message": "kill sequence scheduled",
+    }))
+}
+
 /// Remove the socket file (for clean shutdown).
 pub fn cleanup_socket(socket_path: &Path) {
     if socket_path.exists()
@@ -350,5 +365,52 @@ mod tests {
             st.rebaseline_pending,
             "arm must schedule a baseline re-capture"
         );
+    }
+
+    fn state() -> Arc<Mutex<DaemonState>> {
+        Arc::new(Mutex::new(DaemonState::new(DaemonMode::Enforce)))
+    }
+
+    /// The wire path the relay actually uses: a `kill` line over a real socket
+    /// has to reach `handle_kill`. Covers the dispatch arm between
+    /// `Request::Kill` and the handler, which the two tests below bypass.
+    #[test]
+    fn test_socket_kill_command_sets_kill_pending() {
+        let (_dir, socket_path, state) = start_test_listener();
+
+        send(
+            &socket_path,
+            serde_json::json!({"command": "kill", "reason": "peer alpha lost AC power"}),
+        );
+
+        assert_eq!(
+            state.lock().unwrap().kill_pending.as_deref(),
+            Some("peer alpha lost AC power"),
+            "a kill command must queue the reason for the main loop"
+        );
+    }
+
+    #[test]
+    fn test_handle_kill_sets_pending() {
+        let st = state();
+        let resp = handle_kill(&st, "peer alpha lost AC power");
+        assert!(resp.ok);
+        assert_eq!(
+            st.lock().unwrap().kill_pending.as_deref(),
+            Some("peer alpha lost AC power")
+        );
+    }
+
+    #[test]
+    fn test_handle_kill_does_not_run_on_socket_thread() {
+        // The socket handler only records the request. The main loop drains it
+        // through the same path a local violation takes, so nothing here may
+        // flip armed/mode or count a violation.
+        let st = state();
+        handle_kill(&st, "test");
+        let s = st.lock().unwrap();
+        assert!(s.armed);
+        assert_eq!(s.mode, DaemonMode::Enforce);
+        assert_eq!(s.violations_logged, 0);
     }
 }

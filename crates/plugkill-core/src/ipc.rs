@@ -27,6 +27,10 @@ pub enum Request {
     Enforce,
     #[serde(rename = "reload")]
     Reload,
+    /// Run the configured kill sequence. Sent by plugkill-relay when a
+    /// signature-verified KILL arrives from a trusted peer.
+    #[serde(rename = "kill")]
+    Kill { reason: String },
 }
 
 /// JSON response to a client.
@@ -269,5 +273,27 @@ fn print_human_response(line: &str) {
     // Fallback: pretty-print as JSON
     if let Ok(pretty) = serde_json::to_string_pretty(data) {
         println!("{pretty}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_kill_request_deserializes() {
+        // Exactly the bytes plugkill-relay's trigger::trigger_local_kill sends.
+        let line = r#"{"command":"kill","reason":"peer alpha lost AC power"}"#;
+        let req: Request = serde_json::from_str(line).unwrap();
+        let Request::Kill { reason } = req else {
+            panic!("expected Request::Kill");
+        };
+        assert_eq!(reason, "peer alpha lost AC power");
+    }
+
+    #[test]
+    fn test_kill_request_requires_reason() {
+        let err = serde_json::from_str::<Request>(r#"{"command":"kill"}"#).unwrap_err();
+        assert!(err.to_string().contains("reason"));
     }
 }

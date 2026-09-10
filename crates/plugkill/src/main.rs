@@ -662,15 +662,27 @@ fn main() {
             }
         }
 
-        // Skip checks if disarmed
-        let is_armed = daemon_state.lock().unwrap().armed;
-        if !is_armed {
+        // Drain a socket-requested kill (relay peer) and read armed state under
+        // one lock.
+        let (remote_kill, is_armed) = {
+            let mut st = daemon_state.lock().unwrap();
+            (st.kill_pending.take(), st.armed)
+        };
+
+        // Skip checks if disarmed. A remote kill overrides the disarm window:
+        // a trusted peer's KILL is not the local operator's dock swap, and
+        // leaving it queued until re-arm would fire it at an arbitrary later
+        // time.
+        if remote_kill.is_none() && !is_armed {
             thread::sleep(sleep_duration);
             continue;
         }
 
-        // Detect violations while holding read locks, collect description if any
-        let violation = detect_violations(&config_arc, &baselines)
+        // Detect violations while holding read locks, collect description if any.
+        // A drained remote kill short-circuits the bus checks.
+        let violation = remote_kill
+            .map(|reason| format!("RELAY VIOLATION: remote kill from peer: {reason}"))
+            .or_else(|| detect_violations(&config_arc, &baselines))
             .or_else(|| check_power_violation(&config_arc, &baselines, &daemon_state))
             .or_else(|| check_network_violation(&config_arc, &baselines, &daemon_state))
             .or_else(|| check_lid_violation(&config_arc, &baselines, &daemon_state))

@@ -13,6 +13,10 @@ pub struct DaemonState {
     /// Set on re-arm (socket `arm` command or disarm-timeout expiry). The main
     /// loop takes it, re-captures every enabled bus baseline, and clears it.
     pub rebaseline_pending: bool,
+    /// Reason for a kill requested over the control socket. Set by
+    /// `socket::handle_kill`, drained by the main loop, never run on the
+    /// socket thread.
+    pub kill_pending: Option<String>,
     /// When power went from AC to Battery (for grace period tracking).
     pub power_unplug_at: Option<Instant>,
     /// Whether the trigger-once policy has already fired and needs re-arm.
@@ -34,6 +38,7 @@ impl DaemonState {
             last_poll: None,
             reload_pending: false,
             rebaseline_pending: false,
+            kill_pending: None,
             power_unplug_at: None,
             power_trigger_once_fired: false,
             network_link_down_at: None,
