@@ -1,3 +1,4 @@
+use log::warn;
 use std::collections::HashMap;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::{Duration, Instant};
@@ -33,7 +34,7 @@ impl Resolver {
         let addrs: Vec<SocketAddr> = match address.to_socket_addrs() {
             Ok(iter) => iter.collect(),
             Err(e) => {
-                log::warn!("failed to resolve '{}': {}", address, e);
+                warn!("failed to resolve '{address}': {e}");
                 return Vec::new();
             }
         };

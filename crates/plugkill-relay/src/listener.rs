@@ -3,7 +3,7 @@ use crate::crypto::{self, NonceCache};
 use crate::protocol::{self, PacketType};
 use crate::sender;
 use crate::trigger;
-use log::{info, warn};
+use log::{error, info, warn};
 use std::net::UdpSocket;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,7 +25,7 @@ pub fn run(
     let socket = match UdpSocket::bind(&bind_addr) {
         Ok(s) => s,
         Err(e) => {
-            log::error!("failed to bind UDP listener on {}: {e}", bind_addr);
+            error!("failed to bind UDP listener on {bind_addr}: {e}");
             return;
         }
     };
