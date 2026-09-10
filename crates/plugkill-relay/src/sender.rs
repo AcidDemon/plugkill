@@ -2,7 +2,7 @@ use crate::config::{Config, PeerConfig};
 use crate::crypto;
 use crate::protocol::{self, PacketType};
 use crate::resolve::Resolver;
-use log::{info, warn};
+use log::{error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::net::UdpSocket;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -25,7 +25,7 @@ pub fn fan_out(
     let socket = match UdpSocket::bind("0.0.0.0:0") {
         Ok(s) => s,
         Err(e) => {
-            warn!("failed to bind UDP socket: {e}");
+            error!("failed to bind UDP socket: {e}");
             let timed_out = config.peers.iter().map(|p| p.name.clone()).collect();
             return FanOutResult {
                 acked: vec![],
