@@ -333,7 +333,7 @@ fn handle_kill(state: &Arc<Mutex<DaemonState>>, reason: &str, peer_uid: Option<u
     // on the way out: the node is about to go down on the relay's fallback.
     if st.mode == DaemonMode::Learn {
         st.violations_logged += 1;
-        warn!("LEARN MODE: RELAY VIOLATION: remote kill from peer: {reason}");
+        warn!("LEARN mode: RELAY VIOLATION: remote kill from peer: {reason}");
         return Response::err("daemon in learn mode, refusing remote kill");
     }
 

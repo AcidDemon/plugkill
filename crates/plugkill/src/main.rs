@@ -318,7 +318,7 @@ fn main() {
     }
 
     if cfg.general.dry_run {
-        warn!("running in DRY RUN mode: no destructive actions will be taken");
+        warn!("[DRY RUN] no destructive actions will be taken");
     }
 
     let active_buses: Vec<&str> = [
@@ -348,7 +348,7 @@ fn main() {
     }
 
     let initial_mode = if cli.learn_mode {
-        info!("starting in LEARNING mode: violations will be logged but not acted upon");
+        info!("starting in LEARN mode: violations will be logged but not acted upon");
         DaemonMode::Learn
     } else {
         DaemonMode::Enforce
@@ -664,7 +664,7 @@ fn main() {
                 }
             }
             if config_arc.read().unwrap().general.dry_run {
-                warn!("dry run: continuing patrol");
+                warn!("[DRY RUN] continuing patrol");
             }
         }
 
@@ -1088,7 +1088,7 @@ fn handle_violation(
         }
         DaemonMode::Learn => {
             st.violations_logged += 1;
-            warn!("LEARN MODE: {description}");
+            warn!("LEARN mode: {description}");
             false
         }
     }

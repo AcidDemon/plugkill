@@ -132,7 +132,7 @@ fn main() {
 
     let dry_run = cli.dry_run;
     if dry_run {
-        info!("DRY-RUN MODE: will log but not trigger kills");
+        info!("[DRY RUN] will log but not trigger kills");
     }
     info!("starting plugkill-relay daemon");
     info!("  peers: {}", cfg.peers.len());

@@ -97,7 +97,7 @@ pub fn run(
                 send_ack(&socket, src, &packet.nonce, private_key, our_pubkey);
 
                 if dry_run {
-                    warn!("DRY-RUN: would trigger local kill and relay to peers, skipping");
+                    warn!("[DRY RUN] would trigger local kill and relay to peers, skipping");
                 } else {
                     let _ = sender::fan_out(
                         config,
