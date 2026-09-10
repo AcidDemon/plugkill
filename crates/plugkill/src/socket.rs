@@ -479,37 +479,49 @@ mod tests {
 
     /// The wire path the relay actually uses: a `kill` line over a real socket
     /// has to reach `handle_kill`. Covers the dispatch arm between
-    /// `Request::Kill` and the handler. The test process is not root, so this
-    /// connection is itself the unauthorized case, which is what the socket
-    /// being group-writable exposes in production.
+    /// `Request::Kill` and the handler in both environments this suite runs
+    /// in, because the outcome is the uid gate's and so depends on the uid:
+    /// the Linux CI job runs as a normal user and gets the refusal the
+    /// group-writable socket exposes in production, while the FreeBSD CI job
+    /// runs as root and gets the authorized path. Asserting only one of them
+    /// would hard-fail in the other job.
     #[test]
-    fn test_socket_kill_command_refused_for_non_root() {
-        assert_ne!(
-            nix::unistd::geteuid().as_raw(),
-            0,
-            "this test must not run as root: it asserts the unauthorized path"
-        );
+    fn test_socket_kill_command_dispatches_to_handle_kill() {
         let (_dir, socket_path, state) = start_test_listener();
+        let reason = "peer alpha lost AC power";
 
         let resp = plugkill_core::ipc::send_request(
             &socket_path,
-            &serde_json::json!({"command": "kill", "reason": "peer alpha lost AC power"}),
+            &serde_json::json!({"command": "kill", "reason": reason}),
         )
-        .expect("transport should succeed; the daemon should refuse at the application level");
+        .expect("transport should succeed; any refusal is at the application level");
 
-        assert_eq!(
-            resp.get("ok").and_then(|v| v.as_bool()),
-            Some(false),
-            "a non-root kill must be refused: {resp}"
-        );
-        assert!(
-            resp["error"].as_str().unwrap().contains("root"),
-            "the refusal must say it requires root: {resp}"
-        );
-        assert!(
-            state.lock().unwrap().kill_pending.is_none(),
-            "a refused kill must not queue anything for the main loop"
-        );
+        if nix::unistd::geteuid().is_root() {
+            assert_eq!(
+                resp.get("ok").and_then(|v| v.as_bool()),
+                Some(true),
+                "a root kill must be authorized: {resp}"
+            );
+            assert_eq!(
+                state.lock().unwrap().kill_pending.as_deref(),
+                Some(reason),
+                "an authorized kill must queue its reason for the main loop"
+            );
+        } else {
+            assert_eq!(
+                resp.get("ok").and_then(|v| v.as_bool()),
+                Some(false),
+                "a non-root kill must be refused: {resp}"
+            );
+            assert!(
+                resp["error"].as_str().unwrap().contains("root"),
+                "the refusal must say it requires root: {resp}"
+            );
+            assert!(
+                state.lock().unwrap().kill_pending.is_none(),
+                "a refused kill must not queue anything for the main loop"
+            );
+        }
     }
 
     #[test]
