@@ -538,8 +538,15 @@ fn main() {
 
     // Main polling loop
     while running.load(Ordering::Relaxed) {
-        // Check disarm timeout expiry
-        {
+        // One lock acquisition for everything this iteration reads off the
+        // shared state: the disarm-expiry re-arm, the re-baseline flag, the
+        // armed flag, and any kill a relay peer queued. handle_arm sets armed,
+        // disarm_until and rebaseline_pending together, so reading them in
+        // separate acquisitions can see an arm as armed with its re-baseline
+        // still pending and run one detection pass against the pre-disarm
+        // baseline. The guard drops here: capture_baselines below re-locks
+        // daemon_state for the power, network and lid baselines.
+        let (needs_rebaseline, is_armed, remote_kill) = {
             let mut st = daemon_state.lock().unwrap();
             if !st.armed && st.is_disarm_expired() {
                 info!("disarm timeout expired, re-arming");
@@ -547,16 +554,13 @@ fn main() {
                 st.disarm_until = None;
                 st.rebaseline_pending = true;
             }
-        }
-
-        // Handle re-baseline after re-arm (from timeout or socket arm command).
-        // Take the flag in its own scope: the block below re-locks daemon_state
-        // for the power, network and lid baselines, so the guard must be gone
-        // before it runs.
-        let needs_rebaseline = {
-            let mut st = daemon_state.lock().unwrap();
-            std::mem::take(&mut st.rebaseline_pending)
+            (
+                std::mem::take(&mut st.rebaseline_pending),
+                st.armed,
+                st.kill_pending.take(),
+            )
         };
+
         if needs_rebaseline {
             let cfg = config_arc.read().unwrap();
             let mut bl = baselines.write().unwrap();
@@ -623,13 +627,6 @@ fn main() {
         // Re-read every iteration so a reloaded general.sleep_ms takes effect
         // without a restart. Both sleep sites below are after this point.
         let sleep_duration = Duration::from_millis(config_arc.read().unwrap().general.sleep_ms);
-
-        // Drain a socket-requested kill (relay peer) and read armed state under
-        // one lock.
-        let (remote_kill, is_armed) = {
-            let mut st = daemon_state.lock().unwrap();
-            (st.kill_pending.take(), st.armed)
-        };
 
         // Skip checks if disarmed. A remote kill overrides the disarm window:
         // a trusted peer's KILL is not the local operator's dock swap, and
