@@ -447,14 +447,14 @@ fn validate(config: &mut Config) -> Result<(), Error> {
     const MAX_SLEEP: u64 = 10_000;
     if config.general.sleep_ms < MIN_SLEEP {
         warn!(
-            "sleep_ms {} is below minimum {MIN_SLEEP}, clamping",
+            "general.sleep_ms {} is below minimum {MIN_SLEEP}, clamping",
             config.general.sleep_ms
         );
         config.general.sleep_ms = MIN_SLEEP;
     }
     if config.general.sleep_ms > MAX_SLEEP {
         warn!(
-            "sleep_ms {} is above maximum {MAX_SLEEP}, clamping",
+            "general.sleep_ms {} is above maximum {MAX_SLEEP}, clamping",
             config.general.sleep_ms
         );
         config.general.sleep_ms = MAX_SLEEP;
@@ -464,7 +464,7 @@ fn validate(config: &mut Config) -> Result<(), Error> {
     {
         if config.general.watch_thunderbolt {
             warn!(
-                "watch_thunderbolt has no effect on FreeBSD: the kernel exposes no per-device unique_id"
+                "general.watch_thunderbolt has no effect on FreeBSD: the kernel exposes no per-device unique_id"
             );
         }
         if config.power.require_locked {
@@ -503,7 +503,7 @@ fn validate(config: &mut Config) -> Result<(), Error> {
     }
     if config.destruction.do_wipe_swap && config.destruction.swap_device.is_none() {
         return Err(Error::Config(
-            "do_wipe_swap is true but swap_device is not set".to_string(),
+            "destruction.do_wipe_swap is true but destruction.swap_device is not set".to_string(),
         ));
     }
 
@@ -532,7 +532,7 @@ fn validate(config: &mut Config) -> Result<(), Error> {
         config.power.grace_secs = MAX_GRACE_SECS;
     }
     if config.power.require_locked && config.power.policy == PowerPolicy::Monitor {
-        warn!("power.require_locked has no effect when policy is 'monitor'");
+        warn!("power.require_locked has no effect when power.policy is 'monitor'");
     }
 
     if config.network.grace_secs > MAX_GRACE_SECS {
@@ -552,6 +552,23 @@ fn validate(config: &mut Config) -> Result<(), Error> {
             config.lid.grace_secs
         );
         config.lid.grace_secs = MAX_GRACE_SECS;
+    }
+
+    // An empty ignore token is a substring of every selector, so it would mask
+    // the whole bus. is_ignored() in pci.rs and display.rs also skips empty
+    // tokens; that stays as defense in depth.
+    for (i, selector) in config.pci.ignore.iter().enumerate() {
+        if selector.is_empty() {
+            return Err(Error::Config(format!("pci.ignore[{i}]: must not be empty")));
+        }
+    }
+
+    for (i, connector) in config.display.ignore.iter().enumerate() {
+        if connector.is_empty() {
+            return Err(Error::Config(format!(
+                "display.ignore[{i}]: must not be empty"
+            )));
+        }
     }
 
     // Validate kill commands: binaries must be absolute paths to prevent
@@ -1264,5 +1281,32 @@ policy = "{policy}"
             let f = write_config(&content);
             assert_eq!(load_for_test(f.path()).unwrap().display.policy, policy);
         }
+    }
+
+    #[test]
+    fn test_pci_ignore_empty_entry_rejected() {
+        let f = write_config(
+            r#"
+[pci]
+ignore = ["0000:01:00", ""]
+"#,
+        );
+        let err = load_for_test(f.path()).unwrap_err();
+        assert!(err.to_string().contains("pci.ignore[1]: must not be empty"));
+    }
+
+    #[test]
+    fn test_display_ignore_empty_entry_rejected() {
+        let f = write_config(
+            r#"
+[display]
+ignore = [""]
+"#,
+        );
+        let err = load_for_test(f.path()).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("display.ignore[0]: must not be empty")
+        );
     }
 }
