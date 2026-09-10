@@ -628,25 +628,21 @@ fn main() {
         // without a restart. Both sleep sites below are after this point.
         let sleep_duration = Duration::from_millis(config_arc.read().unwrap().general.sleep_ms);
 
-        // Skip checks if disarmed. A remote kill overrides the disarm window:
-        // a trusted peer's KILL is not the local operator's dock swap, and
-        // leaving it queued until re-arm would fire it at an arbitrary later
-        // time.
-        if remote_kill.is_none() && !is_armed {
-            thread::sleep(sleep_duration);
-            continue;
-        }
-
-        // Detect violations while holding read locks, collect description if any.
-        // A drained remote kill short-circuits the bus checks.
-        let violation = remote_kill
-            .map(|reason| format!("RELAY VIOLATION: remote kill from peer: {reason}"))
-            .or_else(|| detect_violations(&config_arc, &baselines))
-            .or_else(|| check_power_violation(&config_arc, &baselines, &daemon_state))
-            .or_else(|| check_network_violation(&config_arc, &baselines, &daemon_state))
-            .or_else(|| check_lid_violation(&config_arc, &baselines, &daemon_state))
-            .or_else(|| check_pci_violation(&config_arc, &baselines))
-            .or_else(|| check_display_violation(&config_arc, &baselines));
+        // The checkers hold read locks internally; the violation is processed
+        // below with none of them held.
+        let violation = match poll_action(remote_kill, is_armed) {
+            PollAction::Skip => {
+                thread::sleep(sleep_duration);
+                continue;
+            }
+            PollAction::Kill(description) => Some(description),
+            PollAction::Check => detect_violations(&config_arc, &baselines)
+                .or_else(|| check_power_violation(&config_arc, &baselines, &daemon_state))
+                .or_else(|| check_network_violation(&config_arc, &baselines, &daemon_state))
+                .or_else(|| check_lid_violation(&config_arc, &baselines, &daemon_state))
+                .or_else(|| check_pci_violation(&config_arc, &baselines))
+                .or_else(|| check_display_violation(&config_arc, &baselines)),
+        };
 
         // Process violation outside of read locks
         if let Some(description) = violation
@@ -671,6 +667,36 @@ fn main() {
 
     info!("received exit signal, shutting down gracefully");
     socket::cleanup_socket(&cli.socket);
+}
+
+/// What a poll iteration does with the state it drained under the lock.
+#[derive(Debug, PartialEq, Eq)]
+enum PollAction {
+    /// Disarmed with nothing queued: sleep out the interval, run no checks.
+    Skip,
+    /// A kill a relay peer queued. The string is the violation description.
+    Kill(String),
+    /// Armed with nothing queued: run the bus checkers.
+    Check,
+}
+
+/// Turn a drained `kill_pending` and the armed flag into what this poll does.
+///
+/// Pure, so the decision that turns a queued kill into a kill is testable
+/// without a running daemon. The side effects stay at the call site: the
+/// sleep, the bus checkers, and `kill::execute_kill_sequence`.
+fn poll_action(remote_kill: Option<String>, is_armed: bool) -> PollAction {
+    match remote_kill {
+        // A remote kill overrides the disarm window: a trusted peer's KILL is
+        // not the local operator's dock swap, and leaving it queued until
+        // re-arm would fire it at an arbitrary later time. It also
+        // short-circuits the bus checks, which have nothing to add.
+        Some(reason) => {
+            PollAction::Kill(format!("RELAY VIOLATION: remote kill from peer: {reason}"))
+        }
+        None if is_armed => PollAction::Check,
+        None => PollAction::Skip,
+    }
 }
 
 /// Check all active buses for violations. Returns the first violation description found, or None.
@@ -1437,6 +1463,54 @@ mod tests {
             Some(0xdead_beef),
             "the recaptured baseline must be fresh, not the pre-off one"
         );
+    }
+
+    /// A drained kill has to reach the kill sequence, and it has to carry the
+    /// peer's reason into the description that `execute_kill_sequence` logs.
+    /// This is the regression test for the fail-open the branch fixed: the
+    /// relay already got `ok:true`, so a kill dropped here is a kill nothing
+    /// falls back for.
+    #[test]
+    fn test_drained_kill_becomes_a_violation_carrying_the_reason() {
+        let action = poll_action(Some("peer alpha lost AC power".to_string()), true);
+
+        let PollAction::Kill(description) = action else {
+            panic!("a drained kill must produce a kill, got {action:?}");
+        };
+        assert!(
+            description.contains("peer alpha lost AC power"),
+            "the peer's reason must survive into the description: {description}"
+        );
+        assert!(
+            description.starts_with("RELAY VIOLATION:"),
+            "the description must carry the bus prefix alert rules key on: {description}"
+        );
+    }
+
+    /// A trusted peer's KILL is not the local operator's dock swap, so it fires
+    /// through an active disarm window rather than waiting for re-arm and
+    /// firing at an arbitrary later time.
+    #[test]
+    fn test_remote_kill_overrides_the_disarm_window() {
+        let action = poll_action(Some("peer beta seized".to_string()), false);
+
+        assert!(
+            matches!(action, PollAction::Kill(_)),
+            "a remote kill must override the disarm window, got {action:?}"
+        );
+    }
+
+    /// The other half of that override: without a remote kill, a disarm window
+    /// still suppresses everything. If this passed for the wrong reason the
+    /// test above would too.
+    #[test]
+    fn test_disarmed_poll_without_a_remote_kill_skips() {
+        assert_eq!(poll_action(None, false), PollAction::Skip);
+    }
+
+    #[test]
+    fn test_armed_poll_without_a_remote_kill_runs_the_checks() {
+        assert_eq!(poll_action(None, true), PollAction::Check);
     }
 
     #[test]
