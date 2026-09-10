@@ -369,7 +369,9 @@ fn main() {
     let usb_whitelist = build_usb_whitelist(&cfg);
     if !usb_whitelist.devices().is_empty() {
         info!("USB whitelist:");
-        for (id, count) in usb_whitelist.devices() {
+        let mut entries: Vec<_> = usb_whitelist.devices().iter().collect();
+        entries.sort_by_key(|&(id, _)| (id.vendor_id.clone(), id.product_id.clone()));
+        for (id, count) in entries {
             info!("  {id} (max count: {count})");
         }
     }
@@ -384,7 +386,9 @@ fn main() {
     let tb_whitelist = build_thunderbolt_whitelist(&cfg);
     if !tb_whitelist.devices().is_empty() {
         info!("Thunderbolt whitelist:");
-        for id in tb_whitelist.devices() {
+        let mut ids: Vec<_> = tb_whitelist.devices().iter().collect();
+        ids.sort_by_key(|id| id.unique_id.clone());
+        for id in ids {
             info!("  {id}");
         }
     }
@@ -399,7 +403,9 @@ fn main() {
     let sd_whitelist = build_sdcard_whitelist(&cfg);
     if !sd_whitelist.devices().is_empty() {
         info!("SD card whitelist:");
-        for id in sd_whitelist.devices() {
+        let mut ids: Vec<_> = sd_whitelist.devices().iter().collect();
+        ids.sort_by_key(|id| id.serial.clone());
+        for id in ids {
             info!("  {id}");
         }
     }
@@ -425,7 +431,9 @@ fn main() {
             "network baseline: {iface_count} interface(s) (policy: {})",
             cfg.network.policy
         );
-        for (name, state) in snapshot.interfaces() {
+        let mut ifaces: Vec<_> = snapshot.interfaces().iter().collect();
+        ifaces.sort_by_key(|&(name, _)| name.clone());
+        for (name, state) in ifaces {
             info!("  {name}: {state}");
         }
         if cfg.network.grace_secs > 0 {
@@ -1111,7 +1119,9 @@ fn capture_usb_baseline() -> (DeviceSnapshot, HashMap<(String, String), String>)
         "USB baseline captured: {} unique device ID(s)",
         snapshot.len()
     );
-    for (id, count) in snapshot.devices() {
+    let mut entries: Vec<_> = snapshot.devices().iter().collect();
+    entries.sort_by_key(|&(id, _)| (id.vendor_id.clone(), id.product_id.clone()));
+    for (id, count) in entries {
         let name = names
             .get(&(id.vendor_id.clone(), id.product_id.clone()))
             .map(|n| format!(" ({n})"))
@@ -1139,7 +1149,9 @@ fn capture_thunderbolt_baseline(
                 .unwrap_or_default();
 
             info!("Thunderbolt baseline: {} device(s)", snapshot.len());
-            for id in snapshot.devices() {
+            let mut ids: Vec<_> = snapshot.devices().iter().collect();
+            ids.sort_by_key(|id| id.unique_id.clone());
+            for id in ids {
                 let name = names
                     .get(&id.unique_id)
                     .map(|n| format!(" ({n})"))
@@ -1174,7 +1186,9 @@ fn capture_sdcard_baseline(
                 .unwrap_or_default();
 
             info!("SD card baseline: {} device(s)", snapshot.len());
-            for id in snapshot.devices() {
+            let mut ids: Vec<_> = snapshot.devices().iter().collect();
+            ids.sort_by_key(|id| id.serial.clone());
+            for id in ids {
                 let name = names
                     .get(&id.serial)
                     .map(|n| format!(" ({n})"))
