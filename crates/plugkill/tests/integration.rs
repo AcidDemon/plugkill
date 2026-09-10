@@ -19,10 +19,14 @@ fn write_config(content: &str) -> (TempDir, std::path::PathBuf) {
 fn section_keys(text: &str, section: &str) -> Vec<String> {
     let mut keys = Vec::new();
     let mut inside = false;
+    let mut seen = 0;
     for line in text.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with('[') {
             inside = trimmed == section;
+            if inside {
+                seen += 1;
+            }
             continue;
         }
         if !inside || trimmed.is_empty() || trimmed.starts_with('#') {
@@ -33,6 +37,10 @@ fn section_keys(text: &str, section: &str) -> Vec<String> {
         };
         keys.push(key.trim().to_string());
     }
+    assert_eq!(
+        seen, 1,
+        "expected exactly one {section} block, found {seen}"
+    );
     keys.sort();
     keys
 }

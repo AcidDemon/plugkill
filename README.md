@@ -99,7 +99,7 @@ Or via systemd (see below).
 While the daemon is running, you can control it from another terminal using the same binary:
 
 ```bash
-sudo plugkill --status               # human-readable status: armed, mode, uptime, device counts
+sudo plugkill --status               # human-readable status: armed, mode, uptime, device counts, etc.
 sudo plugkill --status --json        # the same status as JSON
 sudo plugkill --disarm 300           # disarm for 5 minutes (mandatory timeout, max 1 hour)
 sudo plugkill --arm                  # re-arm immediately; re-captures baselines
@@ -130,7 +130,7 @@ A reload applies:
 - `general.sleep_ms`, from the next poll onward
 - `general.log_file`, used by the next kill event
 - The three whitelist sections, from the next poll onward
-- The `watch_*` switches. A bus you turn off stops being checked, and a bus you turn on gets a baseline captured during the reload
+- The `watch_*` switches. A bus you turn off stops being checked and drops its baseline, and a bus you turn on gets a fresh baseline captured during the reload
 - The `[power]`, `[network]`, `[lid]`, `[pci]` and `[display]` sections, from the next poll onward
 - The `[destruction]` and `[commands]` sections, read when a kill fires
 
@@ -190,7 +190,7 @@ devices = [
 
 [pci]
 # policy = "monitor"             # "kill" or "monitor"
-# ignore = []                    # selectors to ignore, e.g. "0000:01:00.0"
+# ignore = []                    # selectors to ignore, e.g. "0000:01:00.0" ("pci0:1:0:0" on FreeBSD)
 
 [display]
 # policy = "monitor"             # "kill" or "monitor"
@@ -255,7 +255,7 @@ Utility (no root required):
   -V, --version             Print version
 ```
 
-The NixOS module always passes `--socket-group`, set from `services.plugkill.socketGroup` (default `plugkill`), so members of that group can use the control socket without root.
+The NixOS module always passes `--socket-group`, set from `services.plugkill.socketGroup` (default `plugkill`). plugkill then chowns the socket to that group and sets it mode 0660, so the group is the intended way to reach the socket without root. That also needs `/run/plugkill` itself to be traversable by the group, so check the runtime directory's owner and mode if a group member cannot connect.
 
 ## Installation
 
@@ -315,7 +315,7 @@ The NixOS module always passes `--socket-group`, set from `services.plugkill.soc
 
 The NixOS module runs plugkill as a hardened systemd service with restrictive capabilities, filesystem protections, network isolation, and a `RuntimeDirectory` for the control socket.
 
-Under the NixOS module, `melt_self` removes only the log directory: plugkill refuses to remove the config directory because the module passes a `/nix/store` config path, and it cannot remove its own binary because that is a read-only store path too.
+Under the NixOS module, `melt_self` removes only the contents of the log directory: plugkill refuses to remove the config directory because the module passes a `/nix/store` config path, and it cannot remove its own binary because that is a read-only store path too.
 
 ### Cargo (any Linux distribution)
 
