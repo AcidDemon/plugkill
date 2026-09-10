@@ -88,8 +88,12 @@ mod linux {
 
     pub fn enumerate(ignore: &[String]) -> Result<PciSnapshot, Error> {
         let root = Path::new("/sys/bus/pci/devices");
-        let entries = std::fs::read_dir(root)
-            .map_err(|e| Error::Config(format!("cannot read {}: {e}", root.display())))?;
+        let entries = std::fs::read_dir(root).map_err(|e| {
+            Error::Pci(format!(
+                "cannot read PCI sysfs directory {}: {e}",
+                root.display()
+            ))
+        })?;
         let mut devices = HashSet::new();
         for entry in entries.flatten() {
             let sel = entry.file_name().to_string_lossy().to_string();
@@ -110,9 +114,9 @@ mod freebsd {
         let out = Command::new("pciconf")
             .arg("-l")
             .output()
-            .map_err(|e| Error::Config(format!("cannot run pciconf: {e}")))?;
+            .map_err(|e| Error::Pci(format!("cannot run pciconf: {e}")))?;
         if !out.status.success() {
-            return Err(Error::Config(format!("pciconf exited: {}", out.status)));
+            return Err(Error::Pci(format!("pciconf exited: {}", out.status)));
         }
         let text = String::from_utf8_lossy(&out.stdout);
         Ok(PciSnapshot::from_set(parse_pciconf(&text, ignore)))
