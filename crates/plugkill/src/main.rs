@@ -630,34 +630,48 @@ fn main() {
 
         // The checkers hold read locks internally; the violation is processed
         // below with none of them held.
-        let violation = match poll_action(remote_kill, is_armed) {
+        let (violation, from_remote_kill) = match poll_action(remote_kill, is_armed) {
             PollAction::Skip => {
                 thread::sleep(sleep_duration);
                 continue;
             }
-            PollAction::Kill(description) => Some(description),
-            PollAction::Check => detect_violations(&config_arc, &baselines)
-                .or_else(|| check_power_violation(&config_arc, &baselines, &daemon_state))
-                .or_else(|| check_network_violation(&config_arc, &baselines, &daemon_state))
-                .or_else(|| check_lid_violation(&config_arc, &baselines, &daemon_state))
-                .or_else(|| check_pci_violation(&config_arc, &baselines))
-                .or_else(|| check_display_violation(&config_arc, &baselines)),
+            PollAction::Kill(description) => (Some(description), true),
+            PollAction::Check => (
+                detect_violations(&config_arc, &baselines)
+                    .or_else(|| check_power_violation(&config_arc, &baselines, &daemon_state))
+                    .or_else(|| check_network_violation(&config_arc, &baselines, &daemon_state))
+                    .or_else(|| check_lid_violation(&config_arc, &baselines, &daemon_state))
+                    .or_else(|| check_pci_violation(&config_arc, &baselines))
+                    .or_else(|| check_display_violation(&config_arc, &baselines)),
+                false,
+            ),
         };
 
         // Process violation outside of read locks
-        if let Some(description) = violation
-            && handle_violation(&daemon_state, &description, &config_arc.read().unwrap())
-        {
-            if let Err(e) =
-                kill::execute_kill_sequence(&config_arc.read().unwrap(), &cli.config, &description)
-            {
-                error!("kill sequence error: {e}");
-                if !config_arc.read().unwrap().general.dry_run {
-                    std::process::exit(1);
+        if let Some(description) = violation {
+            if handle_violation(&daemon_state, &description, &config_arc.read().unwrap()) {
+                if let Err(e) = kill::execute_kill_sequence(
+                    &config_arc.read().unwrap(),
+                    &cli.config,
+                    &description,
+                ) {
+                    error!("kill sequence error: {e}");
+                    if !config_arc.read().unwrap().general.dry_run {
+                        std::process::exit(1);
+                    }
                 }
-            }
-            if config_arc.read().unwrap().general.dry_run {
-                warn!("[DRY RUN] continuing patrol");
+                if config_arc.read().unwrap().general.dry_run {
+                    warn!("[DRY RUN] continuing patrol");
+                }
+            } else if from_remote_kill {
+                // handle_kill checked the mode at the socket and answered
+                // ok:true, so the relay will not fall back to a poweroff. A
+                // learn command landing between that answer and this drain
+                // therefore drops a kill nothing else covers. Accepted design
+                // limit, but it does not get to be silent.
+                warn!(
+                    "drained remote kill dropped: daemon entered learn mode after the socket accepted it"
+                );
             }
         }
 
