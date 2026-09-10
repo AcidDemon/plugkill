@@ -315,6 +315,8 @@ The NixOS module always passes `--socket-group`, set from `services.plugkill.soc
 
 The NixOS module runs plugkill as a hardened systemd service with restrictive capabilities, filesystem protections, network isolation, and a `RuntimeDirectory` for the control socket.
 
+Under the NixOS module, `melt_self` removes only the log directory: plugkill refuses to remove the config directory because the module passes a `/nix/store` config path, and it cannot remove its own binary because that is a read-only store path too.
+
 ### Cargo (any Linux distribution)
 
 ```bash
