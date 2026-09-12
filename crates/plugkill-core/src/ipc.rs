@@ -142,6 +142,22 @@ pub fn send_command(
 }
 
 /// Render a whole-second duration as `1h 2m 5s`, dropping empty leading units.
+/// The watched buses, in one place: the key the daemon reports each bus under
+/// in a status response, and the name a person sees. The CLI status output, the
+/// daemon's startup line and the tray menu all read this list, so a bus cannot
+/// end up named three ways, and a bus added here cannot be silently missed by
+/// one of them. The order is the order everything prints in.
+pub const BUSES: [(&str, &str); 8] = [
+    ("usb_watching", "USB"),
+    ("thunderbolt_watching", "Thunderbolt"),
+    ("sdcard_watching", "SD card"),
+    ("power_watching", "Power supply"),
+    ("network_watching", "Network"),
+    ("lid_watching", "Lid"),
+    ("pci_watching", "PCI"),
+    ("display_watching", "Display"),
+];
+
 pub fn format_duration(secs: u64) -> String {
     let h = secs / 3600;
     let m = (secs % 3600) / 60;
@@ -206,29 +222,10 @@ fn print_human_response(line: &str) {
         println!("Devices:    {usb} USB IDs, {tb} Thunderbolt, {sd} SD card, {pci} PCI");
 
         let mut watching = Vec::new();
-        if data.get("usb_watching").and_then(|v| v.as_bool()) == Some(true) {
-            watching.push("USB");
-        }
-        if data.get("thunderbolt_watching").and_then(|v| v.as_bool()) == Some(true) {
-            watching.push("Thunderbolt");
-        }
-        if data.get("sdcard_watching").and_then(|v| v.as_bool()) == Some(true) {
-            watching.push("SD card");
-        }
-        if data.get("power_watching").and_then(|v| v.as_bool()) == Some(true) {
-            watching.push("power supply");
-        }
-        if data.get("network_watching").and_then(|v| v.as_bool()) == Some(true) {
-            watching.push("network");
-        }
-        if data.get("lid_watching").and_then(|v| v.as_bool()) == Some(true) {
-            watching.push("lid");
-        }
-        if data.get("pci_watching").and_then(|v| v.as_bool()) == Some(true) {
-            watching.push("PCI");
-        }
-        if data.get("display_watching").and_then(|v| v.as_bool()) == Some(true) {
-            watching.push("display");
+        for (key, label) in BUSES {
+            if data.get(key).and_then(|v| v.as_bool()) == Some(true) {
+                watching.push(label);
+            }
         }
         if !watching.is_empty() {
             println!("Watching:   {}", watching.join(", "));

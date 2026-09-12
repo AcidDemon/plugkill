@@ -2,7 +2,7 @@ use ksni::blocking::TrayMethods;
 use ksni::menu::{StandardItem, SubMenu};
 use ksni::{Category, Icon, MenuItem, Status, ToolTip};
 use log::{info, warn};
-use plugkill_core::ipc;
+use plugkill_core::ipc::{self, format_duration};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -318,14 +318,7 @@ fn poll_status(socket_path: &Path) -> Option<(DaemonStatus, u64, Option<u64>, Ve
     };
 
     let mut watching = Vec::new();
-    for (key, label) in [
-        ("usb_watching", "USB"),
-        ("thunderbolt_watching", "Thunderbolt"),
-        ("sdcard_watching", "SD card"),
-        ("power_watching", "Power"),
-        ("network_watching", "Network"),
-        ("lid_watching", "Lid"),
-    ] {
+    for (key, label) in ipc::BUSES {
         if data.get(key).and_then(|v| v.as_bool()) == Some(true) {
             watching.push(label.to_string());
         }
@@ -347,19 +340,6 @@ fn send_action(socket_path: &Path, request: serde_json::Value) {
             }
         }
         Err(e) => warn!("failed to send command: {e}"),
-    }
-}
-
-fn format_duration(secs: u64) -> String {
-    let h = secs / 3600;
-    let m = (secs % 3600) / 60;
-    let s = secs % 60;
-    if h > 0 {
-        format!("{h}h {m}m {s}s")
-    } else if m > 0 {
-        format!("{m}m {s}s")
-    } else {
-        format!("{s}s")
     }
 }
 

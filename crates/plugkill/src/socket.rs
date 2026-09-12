@@ -406,6 +406,24 @@ mod tests {
         resp
     }
 
+    /// The tray and the CLI both read the watched buses out of a status
+    /// response by the keys in `ipc::BUSES`. A key named there but not emitted
+    /// here reads as "this bus is off" rather than as an error, so the bus goes
+    /// quietly missing from both. That is how the tray came to show six of the
+    /// eight buses.
+    #[test]
+    fn test_status_emits_every_bus_key() {
+        let (_dir, socket_path, _state) = start_test_listener();
+        let resp = send(&socket_path, serde_json::json!({"command": "status"}));
+        let data = resp.get("data").expect("status response has no data");
+        for (key, label) in plugkill_core::ipc::BUSES {
+            assert!(
+                data.get(key).is_some_and(|v| v.is_boolean()),
+                "status response is missing a boolean {key} for {label}: {data}"
+            );
+        }
+    }
+
     /// A manual `plugkill --arm` must schedule a baseline re-capture, otherwise
     /// it re-arms against the baseline captured before the disarm window and
     /// any device attached during that window becomes accepted state.

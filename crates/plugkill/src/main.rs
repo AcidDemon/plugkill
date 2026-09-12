@@ -321,19 +321,24 @@ fn main() {
         warn!("[DRY RUN] no destructive actions will be taken");
     }
 
-    let active_buses: Vec<&str> = [
-        cfg.general.watch_usb.then_some("USB"),
-        cfg.general.watch_thunderbolt.then_some("Thunderbolt"),
-        cfg.general.watch_sdcard.then_some("SD card"),
-        cfg.general.watch_power.then_some("power supply"),
-        cfg.general.watch_network.then_some("network"),
-        cfg.general.watch_lid.then_some("lid"),
-        cfg.general.watch_pci.then_some("PCI"),
-        cfg.general.watch_display.then_some("display"),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
+    // Zipped against ipc::BUSES rather than naming the buses again here, so the
+    // startup line, the status output and the tray cannot drift apart. The
+    // flags are in the same order as that table.
+    let watch_flags: [bool; ipc::BUSES.len()] = [
+        cfg.general.watch_usb,
+        cfg.general.watch_thunderbolt,
+        cfg.general.watch_sdcard,
+        cfg.general.watch_power,
+        cfg.general.watch_network,
+        cfg.general.watch_lid,
+        cfg.general.watch_pci,
+        cfg.general.watch_display,
+    ];
+    let active_buses: Vec<&str> = ipc::BUSES
+        .iter()
+        .zip(watch_flags)
+        .filter_map(|((_, label), on)| on.then_some(*label))
+        .collect();
     info!("monitoring buses: {}", active_buses.join(", "));
 
     // Set up signal handling for clean exit
