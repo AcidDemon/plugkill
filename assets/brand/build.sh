@@ -1,47 +1,55 @@
 #!/bin/sh
-# Builds the plugkill lockups from the mascot + wordmark sources.
+# Rebuilds the plugkill PNG exports from the SVG sources in this directory.
 # Run from assets/brand: ./build.sh
+#
+# Needs resvg (SVG rasterizer) and ImageMagick.
+#
+# The SVG sources are the masters. Everything under png/ is generated, so edit
+# the SVGs and re-run rather than touching the PNGs.
+#
+# icon.svg        plated app icon, the G-form mark on its own dark plate
+# glyph-mono.svg  single path, fill="currentColor", for the tray
+# mascot.svg      full-body goose, no cable (the banner draws the cable)
+# wordmark.svg    "plugkill" lettering
+# banner-*.svg    wide README lockups, mascot left and wordmark right
 set -eu
-inner() { sed -e '1d' -e '$d' "$1"; }
 
-WATCH=$(inner mascot-watchdog.svg)
-WORD_DUO_D=$(inner wordmark-duo.svg)
-WORD_DUO_L=$(inner wordmark-duo.svg | sed 's/#f0f6fc/#1a2429/')
+out=png
+mkdir -p "$out"
 
-tag() { printf '<text x="0" y="0" font-family="JetBrains Mono, DejaVu Sans Mono, monospace" font-size="30" letter-spacing="3" fill="#109fa6">Every bus watched. One answer.</text>'; }
-
-lockup() {
-  cat <<SVG
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 490" width="1260" height="490" role="img" aria-label="plugkill">
-  <g transform="translate(30,20) scale(0.63)">$WATCH</g>
-  <g transform="translate(556.25,81.25) scale(0.85)">$1</g>
-  <g transform="translate(541,378)">$(tag)</g>
-</svg>
-SVG
-}
-
-# Crops a generated SVG's viewBox to what is actually drawn, so the README
-# logo has no dead band above or below it. Needs resvg + ImageMagick.
-tighten() {
-  f=$1; pad=${2:-6}
-  vb=$(sed -n 's/.*viewBox="\([^"]*\)".*/\1/p' "$f" | head -1)
-  vx=$(echo "$vb" | cut -d' ' -f1); vy=$(echo "$vb" | cut -d' ' -f2)
-  vw=$(echo "$vb" | cut -d' ' -f3); vh=$(echo "$vb" | cut -d' ' -f4)
-  png=$(mktemp /tmp/pk-tight-XXXXXX.png)
-  resvg -w 2000 "$f" "$png" 2>/dev/null
-  box=$(magick "$png" -format "%@" info:)
-  rm -f "$png"
-  bw=${box%%x*}; rest=${box#*x}; bh=${rest%%+*}; rest=${rest#*+}; bx=${rest%%+*}; by=${rest#*+}
-  nvb=$(awk -v vx="$vx" -v vy="$vy" -v vw="$vw" -v bw="$bw" -v bh="$bh" -v bx="$bx" -v by="$by" -v p="$pad" \
-    'BEGIN{s=vw/2000; printf "%.1f %.1f %.1f %.1f", vx+bx*s-p, vy+by*s-p, bw*s+2*p, bh*s+2*p}')
-  w=$(echo "$nvb" | cut -d' ' -f3); h=$(echo "$nvb" | cut -d' ' -f4)
-  sed -i "1s|viewBox=\"[^\"]*\" width=\"[^\"]*\" height=\"[^\"]*\"|viewBox=\"$nvb\" width=\"$w\" height=\"$h\"|" "$f"
-}
-
-lockup "$WORD_DUO_D" > logo-watchdog-dark.svg
-lockup "$WORD_DUO_L" > logo-watchdog-light.svg
-for f in logo-watchdog-dark.svg logo-watchdog-light.svg; do
-  [ -f "$f" ] && tighten "$f"
+# App icon. 22 is in the list because that is what the GTK/ksni tray asks for.
+for s in 16 22 24 32 48 64 128 256 512; do
+  resvg -w "$s" icon.svg "$out/icon-$s.png"
 done
 
-{ head -1 wordmark.svg; inner wordmark.svg | sed 's/#f0f6fc/#14161b/'; echo '</svg>'; } > wordmark-light.svg
+# Tray glyph, one PNG per daemon state. These colours are the ones tray.rs
+# already uses for its status circles, so swapping the circle for this glyph
+# needs no palette change.
+state_colour() {
+  case "$1" in
+    armed)        printf '#2ecc40' ;;
+    learning)     printf '#f5c211' ;;
+    disarmed)     printf '#e04f5f' ;;
+    disconnected) printf '#888888' ;;
+  esac
+}
+for st in armed learning disarmed disconnected; do
+  c=$(state_colour "$st")
+  sed "s/currentColor/$c/" glyph-mono.svg > "$out/.glyph-$st.svg"
+  for s in 22 24 32 48; do
+    resvg -w "$s" "$out/.glyph-$st.svg" "$out/glyph-$st-$s.png"
+  done
+  rm -f "$out/.glyph-$st.svg"
+done
+
+# README banners. 1440 wide matches the SVG viewBox; 720 is the 2x-friendly
+# half for a README that renders at roughly 720 CSS px.
+for v in light dark; do
+  resvg -w 1440 "banner-$v.svg" "$out/banner-$v.png"
+  resvg -w 720 "banner-$v.svg" "$out/banner-$v@1x.png"
+done
+
+# Favicon, the sizes a browser actually picks from.
+magick "$out/icon-16.png" "$out/icon-32.png" "$out/icon-48.png" "$out/favicon.ico"
+
+printf 'wrote %s files to %s/\n' "$(ls -1 "$out" | wc -l | tr -d ' ')" "$out"
