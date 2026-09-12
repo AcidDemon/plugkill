@@ -1,7 +1,4 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/logo-watchdog-dark.svg">
-  <img alt="plugkill" src="assets/brand/logo-watchdog-light.svg" width="560">
-</picture>
+<img alt="plugkill" src="assets/Banner-Plugkill_exact-1800.png" width="900">
 
 A hardware kill-switch daemon for Linux and FreeBSD. It watches the physical state of the machine and powers it off when something changes that you did not authorize: a USB stick appears, the Thunderbolt bus grows a device, the power cable is pulled, the Ethernet cable is unplugged, the lid closes, a monitor is attached.
 
