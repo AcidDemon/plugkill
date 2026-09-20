@@ -1,0 +1,24 @@
+[workspace]
+members = [
+    "crates/plugkill-core",
+    "crates/plugkill",
+    "crates/plugkill-gui",
+    "crates/plugkill-relay",
+]
+# plugkill-gui links GTK 4, which servers, the static release builds and the
+# FreeBSD CI job do not have. Plain `cargo build` and `cargo test` skip it.
+# Build it with `nix develop -c cargo build -p plugkill-gui` or `nix build .#gui`.
+default-members = [
+    "crates/plugkill-core",
+    "crates/plugkill",
+    "crates/plugkill-relay",
+]
+resolver = "3"
+
+# plugkill-core is a path dependency of the three binaries here and is not
+# published, so its real API is what those three import. Everything wider than
+# that is `pub` for no reason, and a `pub` item in a library is exempt from
+# dead_code: the lint was off across the whole library until the visibility was
+# made honest. Denying it here keeps it that way.
+[workspace.lints.rust]
+dead_code = "deny"

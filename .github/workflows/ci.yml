@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Run tests
+        run: cargo test
+
+  freebsd:
+    name: FreeBSD build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build and test in a FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.2"
+          usesh: true
+          prepare: |
+            pkg install -y rust pkgconf
+          run: |
+            # The only job that compiles the FreeBSD-only blocks: the flake
+            # builds Linux alone. dead_code is denied in the workspace lints,
+            # so this build fails on an item those blocks stopped reaching.
+            cargo build
+            # The two --list-devices tests need real sysfs and don't apply here.
+            cargo test -- \
+              --skip=test_list_devices_no_root \
+              --skip=test_generate_whitelist_no_root
+
+  gui:
+    name: GUI clippy + test (Nix)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Clippy
+        run: nix develop -c cargo clippy -p plugkill-gui --all-targets -- -D warnings
+
+      - name: Tests
+        run: nix develop -c cargo test -p plugkill-gui

@@ -1,0 +1,455 @@
+/* The window paints nothing; the root box is the card. */
+window.plugkill-dashboard {
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+.dashboard {
+  background-color: #1e2328;
+  color: #eef1f3;
+  border: 1px solid #363c43;
+  border-radius: 14px;
+  padding: 14px;
+  font-size: 13px;
+}
+.state-title {
+  font-weight: 700;
+  font-size: 17px;
+}
+.state-detail {
+  color: #9aa3ab;
+  font-size: 12px;
+}
+.section {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.84px;
+  color: #8d959d;
+}
+.pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 9px;
+  border-radius: 99px;
+  color: #0d1115;
+}
+.pill-armed { background: #2ecc40; }
+.pill-learning { background: #f5c211; }
+.pill-disarmed { background: #ff8a1f; }
+.pill-pending { background: #e5243b; color: #ffffff; }
+.pill-down { background: #8a9099; }
+
+/* Buttons: reset what the GTK theme draws, then paint our own. */
+.dashboard button {
+  background-image: none;
+  border: none;
+  box-shadow: none;
+  text-shadow: none;
+  min-height: 0;
+  min-width: 0;
+  font-weight: 500;
+}
+/* K4: every clickable thing answers the pointer. The keys above paint their
+   own gradient over this, so the tint only shows on the controls that have
+   no hover of their own: spin buttons, drop downs, plain buttons. */
+.dashboard button:hover,
+.dashboard entry:hover {
+  background-color: rgba(255, 255, 255, 0.10);
+}
+.dashboard switch:hover,
+.dashboard checkbutton:hover check {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.16);
+}
+.dashboard button:focus-visible {
+  outline: 2px solid #3daee9;
+  outline-offset: 1px;
+}
+/* Close holds the focus from the moment the dashboard opens, so the theme's
+   own focus ring would mark it before anyone has touched the keyboard. */
+.dashboard button:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Wells: the mode switch and the bus grid are recessed into the card. */
+.segm,
+.well {
+  background-color: #15191d;
+  border-radius: 10px;
+  padding: 5px;
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.65),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* Keys: what sits on the card is raised, lit from the top. */
+.tile,
+.presets > button,
+.foot > button,
+.dashboard button.rowbtn,
+.segm > button.seg:checked,
+.dashboard button.bigbtn {
+  background-color: transparent;
+  background-image: linear-gradient(#3b434c, #2a3138);
+  border-top: 1px solid #5b646d;
+  border-bottom: 1px solid #101417;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.55);
+}
+.presets > button:hover,
+.foot > button:hover,
+.dashboard button.rowbtn:hover {
+  background-image: linear-gradient(#59636f, #3d4650);
+  border-top-color: #79838e;
+}
+/* Pressed: the drop shadow becomes an inset one, so the key sinks. */
+.presets > button:active,
+.foot > button:active,
+.dashboard button.rowbtn:active,
+.segm > button.seg:active,
+.dashboard button.bigbtn:active {
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+
+.segm > button.seg {
+  background-color: transparent;
+  color: #aab2b9;
+  border-radius: 6px;
+  padding: 6px;
+}
+.segm > button.seg:hover {
+  background-color: rgba(255, 255, 255, 0.11);
+}
+.segm > button.seg:checked {
+  background-image: linear-gradient(#5cc3f4, #2596d2);
+  border-top-color: #8fdcff;
+  color: #ffffff;
+}
+.segm > button.seg:checked:hover {
+  background-image: linear-gradient(#7fd4fa, #38ade9);
+}
+
+.presets > button,
+.foot > button {
+  color: inherit;
+  border-radius: 7px;
+}
+.presets > button {
+  padding: 7px 0;
+}
+.foot > button {
+  padding: 6px 10px;
+}
+.dashboard button.bigbtn {
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 7px;
+  color: #ffffff;
+  background-image: linear-gradient(#5cc3f4, #2596d2);
+  border-top-color: #8fdcff;
+}
+.dashboard button.bigbtn:hover {
+  background-image: linear-gradient(#7fd4fa, #38ade9);
+  border-top-color: #b2e9ff;
+}
+.dashboard button.bigbtn.danger {
+  background-image: linear-gradient(#ea6675, #cb3a4b);
+  border-top-color: #ff9aa5;
+}
+.dashboard button.bigbtn.danger:hover {
+  background-image: linear-gradient(#f58e99, #e05263);
+  border-top-color: #ffb7c0;
+}
+
+/* A command the daemon did not run. Wears the disarmed orange: it is a
+   warning about the machine's protection, not an error in the tray. */
+.notice {
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  background: alpha(#ff8a1f, 0.12);
+  border: 1px solid alpha(#ff8a1f, 0.35);
+}
+.countdown {
+  padding: 10px;
+  border-radius: 10px;
+  background: alpha(#ff8a1f, 0.12);
+  border: 1px solid alpha(#ff8a1f, 0.35);
+}
+.countdown .box-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.pending {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: alpha(#e04f5f, 0.16);
+  border: 1px solid alpha(#e04f5f, 0.5);
+}
+.box-title {
+  font-weight: 700;
+  font-size: 15px;
+}
+.ring-label {
+  font-size: 13px;
+  font-weight: 600;
+  font-feature-settings: "tnum";
+}
+.tile {
+  padding: 7px 8px;
+  border-radius: 8px;
+}
+/* Unwatched buses stay readable; the lamp carries the state. */
+.tile.off,
+.tile.off .tile-value {
+  color: #6f7982;
+}
+.lamp {
+  background-color: #4a5359;
+  border-radius: 50%;
+}
+.lamp.on {
+  background-color: #2ecc40;
+}
+.tile-icon {
+  color: inherit;
+}
+.tile-name {
+  font-weight: 500;
+}
+.tile-value {
+  color: #9aa3ab;
+  font-size: 11.5px;
+  font-feature-settings: "tnum";
+}
+.down {
+  padding: 12px;
+  border-radius: 10px;
+  background-color: #262c32;
+  color: #aab2b9;
+}
+
+/* The settings window wears the same card, wells and keys, but it is an
+   ordinary window: no rounded edge, and the sidebar runs to the frame. */
+.settings {
+  border: none;
+  border-radius: 0;
+  padding: 0;
+}
+.settings .sidebar {
+  background-color: #15191d;
+  border-right: 1px solid #363c43;
+  padding: 8px 6px;
+  min-width: 168px;
+}
+.settings .sidebar row {
+  padding: 8px 10px;
+  border-radius: 7px;
+  font-weight: 500;
+}
+.settings .sidebar row:hover {
+  background-color: rgba(255, 255, 255, 0.11);
+}
+.settings .sidebar row:selected {
+  background-image: linear-gradient(#5cc3f4, #2596d2);
+  color: #ffffff;
+}
+/* The selected row still answers the pointer, or the sidebar goes dead under
+   the panel you are already on. */
+.settings .sidebar row:selected:hover {
+  background-image: linear-gradient(#6fcdf8, #35a8e4);
+}
+.settings .content {
+  padding: 14px;
+}
+/* The editor's output panes and its read-only section: code, so monospace,
+   and small enough that a config line fits. */
+.settings .mono {
+  font-family: monospace;
+  font-size: 11.5px;
+}
+
+/* Light desktops: the window keeps the theme's colours, and show_at sets
+   the light class from them. */
+.light .dashboard {
+  background-color: #fbfcfd;
+  color: #1f2429;
+  border-color: #c9ced3;
+}
+.light .state-detail,
+.light .tile-value {
+  color: #6a7178;
+}
+.light .segm,
+.light .well {
+  background-color: #dfe4e9;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.14);
+}
+.light .tile,
+.light .presets > button,
+.light .foot > button {
+  background-image: linear-gradient(#ffffff, #e9edf1);
+  border-top-color: #ffffff;
+  border-bottom-color: #b9c1c9;
+  box-shadow: 0 1px 2px rgba(16, 22, 28, 0.18);
+}
+/* The accent keys keep their colour, only the shadow lightens. */
+.light .segm > button.seg:checked,
+.light .dashboard button.bigbtn {
+  box-shadow: 0 1px 2px rgba(16, 22, 28, 0.18);
+}
+.light .presets > button:hover,
+.light .foot > button:hover {
+  background-image: linear-gradient(#ffffff, #eef2f6);
+  border-bottom-color: #a9b3bc;
+}
+.light .dashboard button:hover,
+.light .dashboard entry:hover {
+  background-color: rgba(16, 22, 28, 0.10);
+}
+.light .dashboard switch:hover,
+.light .dashboard checkbutton:hover check {
+  box-shadow: 0 0 0 2px rgba(16, 22, 28, 0.18);
+}
+.light .presets > button:active,
+.light .foot > button:active,
+.light .segm > button.seg:active,
+.light .dashboard button.bigbtn:active {
+  box-shadow: inset 0 1px 3px rgba(16, 22, 28, 0.22);
+}
+.light .segm > button.seg {
+  color: #6a7178;
+}
+/* :checked on top of the rule above, so the selected key keeps its white
+   label whatever the source order. */
+.light .segm > button.seg:checked {
+  color: #ffffff;
+}
+.light .segm > button.seg:hover {
+  background-color: rgba(16, 22, 28, 0.11);
+}
+.light .lamp {
+  background-color: #b9c1c9;
+}
+/* Same tie as above: .light .lamp would otherwise grey out every lit lamp. */
+/* The tree stem, and the rows it connects. Rows touch, so the row highlight
+   carries the hover rather than a gap between cards. */
+.stem {
+  color: #59636d;
+}
+.light .stem {
+  color: #b3bcc4;
+}
+.treerow {
+  /* Little left padding: the elbow ends at the strip's edge and the text has
+     to start right there, or the line looks disconnected from its row. */
+  padding: 2px 8px 2px 3px;
+  border-radius: 6px;
+  /* Every row the same height, keyed or not: the stems are drawn per row and
+     a row that grows for its button bends the line through it. */
+  min-height: 20px;
+}
+.treerow:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+.light .treerow:hover {
+  background-color: rgba(16, 22, 28, 0.06);
+}
+.light .lamp.on {
+  background-color: #2ecc40;
+}
+.light .tile.off,
+.light .tile.off .tile-value {
+  color: #8b949c;
+}
+.light .down {
+  background-color: #eef1f4;
+  color: #5f666c;
+}
+.light .settings .sidebar {
+  background-color: #dfe4e9;
+  border-right-color: #c9ced3;
+}
+.light .settings .sidebar row:hover {
+  background-color: rgba(16, 22, 28, 0.11);
+}
+.light .settings .sidebar row:selected:hover {
+  background-image: linear-gradient(#6fcdf8, #35a8e4);
+}
+/* Same tie as the mode keys: the selected row keeps its white label. */
+.light .settings .sidebar row:selected {
+  color: #ffffff;
+}
+
+/* A bus the daemon is not watching stays readable, like an off tile (D4). */
+.settings .group.off,
+.settings .group.off .section,
+.settings .group.off .state-detail {
+  color: #6f7982;
+}
+.light .settings .group.off,
+.light .settings .group.off .section,
+.light .settings .group.off .state-detail {
+  color: #8b949c;
+}
+
+/* A row in a panel's list, and a whitelist row: raised like a key, so it
+   lifts the same way under the pointer (K4). */
+.settings .tile:hover {
+  background-image: linear-gradient(#49525c, #333b43);
+  border-top-color: #6c7681;
+}
+.light .settings .tile:hover {
+  background-image: linear-gradient(#ffffff, #eef2f6);
+  border-top-color: #ffffff;
+  border-bottom-color: #a9b3bc;
+}
+
+/* The line numbers beside a code pane: dimmer than the code, and a label of
+   its own, so a selection never takes them with it (K3). */
+.settings .gutter {
+  color: #666f77;
+}
+.light .settings .gutter {
+  color: #949ca4;
+}
+
+/* A per-row action in a panel: the footer key, sized for a table row. A row
+   with one has to stand as tall as a row without, so the key is capped to the
+   line it sits on rather than carrying the theme's own button height. */
+.dashboard button.rowbtn {
+  color: inherit;
+  border-radius: 6px;
+  padding: 0 9px;
+  font-size: 11.5px;
+  min-height: 18px;
+}
+/* The diagnostics verdicts, and the one thing to do under a failed one. */
+.verdict {
+  font-size: 11px;
+  font-weight: 700;
+}
+.verdict.ok { color: #2ecc40; }
+.verdict.bad { color: #e5243b; }
+.verdict.unsure { color: #f5c211; }
+.fix {
+  color: #9aa3ab;
+  font-size: 11.5px;
+}
+.light .dashboard button.rowbtn {
+  background-image: linear-gradient(#ffffff, #e9edf1);
+  border-top-color: #ffffff;
+  border-bottom-color: #b9c1c9;
+  box-shadow: 0 1px 2px rgba(16, 22, 28, 0.18);
+}
+.light .dashboard button.rowbtn:hover {
+  background-image: linear-gradient(#ffffff, #eef2f6);
+  border-bottom-color: #a9b3bc;
+}
+.light .dashboard button.rowbtn:active {
+  box-shadow: inset 0 1px 3px rgba(16, 22, 28, 0.22);
+}
+/* The lit greens and yellows do not carry on a white card. */
+.light .verdict.ok { color: #1a9930; }
+.light .verdict.bad { color: #c02033; }
+.light .verdict.unsure { color: #8a6d05; }
+.light .fix { color: #6a7178; }

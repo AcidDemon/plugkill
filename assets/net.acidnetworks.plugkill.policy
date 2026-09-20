@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD polkit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/software/polkit/policyconfig-1.dtd">
+<!--
+  The commands that can stop plugkill from killing, or stop it reacting to one
+  device. auth_self asks the caller for their own password every time, with no
+  cache, and allow_inactive is no, so a remote login that keeps its own
+  session cannot answer the prompt. A caller with no session of its own is
+  asked as the display session of its uid, which is active.
+  The daemon only consults polkit when [general] require_auth = true; uid 0 is
+  always allowed.
+-->
+<policyconfig>
+  <vendor>plugkill</vendor>
+  <vendor_url>https://github.com/AcidDemon/plugkill</vendor_url>
+
+  <action id="net.acidnetworks.plugkill.disarm">
+    <description>Disarm plugkill</description>
+    <message>Disarming stops plugkill from powering this machine off when hardware changes.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+  </action>
+
+  <action id="net.acidnetworks.plugkill.learn">
+    <description>Put plugkill in learning mode</description>
+    <message>Learning mode logs hardware changes instead of powering this machine off.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+  </action>
+
+  <action id="net.acidnetworks.plugkill.reload">
+    <description>Reload the plugkill configuration</description>
+    <message>Reloading replaces the rules that decide when this machine is powered off.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+  </action>
+
+  <action id="net.acidnetworks.plugkill.allow">
+    <description>Allow a device through plugkill</description>
+    <message>Allowing a device stops plugkill from reacting to it.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+  </action>
+</policyconfig>
