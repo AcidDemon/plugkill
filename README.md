@@ -309,6 +309,23 @@ No root required:
 
 ## Installing
 
+### A release build
+
+Each release carries a tarball per target with both binaries, the polkit
+action file, the FreeBSD service scripts and the licence. The archives are
+built by a workflow rather than uploaded by hand, so GitHub holds a provenance
+attestation for each one, and that is the thing worth checking: a SHA256SUMS
+file sitting beside the archives only proves they match themselves.
+
+```bash
+gh release download v0.1.0 -R AcidDemon/plugkill -p '*x86_64-unknown-linux-gnu*'
+gh attestation verify plugkill-v0.1.0-x86_64-unknown-linux-gnu.tar.gz -R AcidDemon/plugkill
+tar -xzf plugkill-v0.1.0-x86_64-unknown-linux-gnu.tar.gz
+```
+
+There is no prebuilt `plugkill-gui`: it links GTK 4 and gtk4-layer-shell, which
+a portable archive cannot carry. Build it from source or run it from the flake.
+
 ### NixOS
 
 ```nix

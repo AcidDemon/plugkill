@@ -31,6 +31,21 @@ jobs:
       - name: Run tests
         run: cargo test
 
+  msrv:
+    name: Minimum supported Rust (1.88)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Keeps rust-version in the manifests honest. 1.88 is what the let-chains
+      # in this tree need; edition 2024 on its own would build on 1.85.
+      - uses: dtolnay/rust-toolchain@1.88.0
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --locked
+
   freebsd:
     name: FreeBSD build + test
     runs-on: ubuntu-latest

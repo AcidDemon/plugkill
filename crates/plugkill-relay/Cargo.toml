@@ -3,8 +3,14 @@ name = "plugkill-relay"
 version = "0.1.0"
 edition = "2024"
 description = "Kill signal relay mesh for plugkill that fans out authenticated shutdown signals between hosts"
-license = "GPL-3.0"
+license = "GPL-3.0-or-later"
 authors = ["AcidDemon"]
+repository = "https://github.com/AcidDemon/plugkill"
+homepage = "https://github.com/AcidDemon/plugkill"
+readme = "../../README.md"
+keywords = ["security", "kill-switch", "ed25519", "daemon", "network"]
+categories = ["command-line-utilities", "network-programming"]
+rust-version = "1.88"
 
 [[bin]]
 name = "plugkill-relay"

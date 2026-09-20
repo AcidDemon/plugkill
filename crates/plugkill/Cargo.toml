@@ -3,8 +3,14 @@ name = "plugkill"
 version = "0.1.0"
 edition = "2024"
 description = "Hardware kill-switch daemon that shuts down the system on hardware changes (USB, Thunderbolt, SD, PCI, power, network, lid, display)"
-license = "GPL-3.0"
+license = "GPL-3.0-or-later"
 authors = ["AcidDemon"]
+repository = "https://github.com/AcidDemon/plugkill"
+homepage = "https://github.com/AcidDemon/plugkill"
+readme = "../../README.md"
+keywords = ["security", "kill-switch", "usb", "daemon", "forensics"]
+categories = ["command-line-utilities", "os::unix-apis", "hardware-support"]
+rust-version = "1.88"
 
 [[bin]]
 name = "plugkill"

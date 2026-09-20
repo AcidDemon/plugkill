@@ -6,6 +6,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -43,6 +45,9 @@ jobs:
         if: matrix.use_cross
         run: cargo install cross --git https://github.com/cross-rs/cross
 
+      # The workspace default members: the daemon and the relay. plugkill-gui
+      # is excluded there because it links GTK, which none of these targets
+      # has, and a static musl build of it would not work anyway.
       - name: Build (cargo)
         if: "!matrix.use_cross"
         run: cargo build --release --target ${{ matrix.target }}
@@ -51,21 +56,34 @@ jobs:
         if: matrix.use_cross
         run: cross build --release --target ${{ matrix.target }}
 
-      - name: Strip binary
+      - name: Strip binaries
         run: |
-          BIN=target/${{ matrix.target }}/release/plugkill
+          STRIP=strip
           if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
             sudo apt-get update && sudo apt-get install -y binutils-aarch64-linux-gnu
-            aarch64-linux-gnu-strip "$BIN"
-          else
-            strip "$BIN"
+            STRIP=aarch64-linux-gnu-strip
           fi
+          for bin in plugkill plugkill-relay; do
+            "$STRIP" "target/${{ matrix.target }}/release/$bin"
+          done
 
+      # Everything the README's source install reaches for: both binaries, the
+      # polkit action file require_auth needs, the FreeBSD service scripts, and
+      # the licence and notes. No config is shipped: `plugkill --default-config`
+      # writes one from the binary you just installed, and a copy pinned at
+      # release time would go stale against it.
       - name: Package archive
         run: |
-          ARCHIVE=plugkill-${{ matrix.target }}.tar.gz
-          tar -czf "$ARCHIVE" -C target/${{ matrix.target }}/release plugkill
-          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+          NAME=plugkill-${{ github.ref_name }}-${{ matrix.target }}
+          mkdir -p "$NAME"
+          cp target/${{ matrix.target }}/release/plugkill \
+             target/${{ matrix.target }}/release/plugkill-relay "$NAME/"
+          cp LICENSE README.md CHANGELOG.md SECURITY.md "$NAME/"
+          mkdir -p "$NAME/polkit" "$NAME/freebsd"
+          cp assets/net.acidnetworks.plugkill.policy "$NAME/polkit/"
+          cp freebsd/rc.d/plugkill freebsd/rc.d/plugkill-relay "$NAME/freebsd/"
+          tar -czf "$NAME.tar.gz" "$NAME"
+          echo "ARCHIVE=$NAME.tar.gz" >> "$GITHUB_ENV"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -78,14 +96,35 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v6
+
       - name: Download artifacts
         uses: actions/download-artifact@v8
         with:
           merge-multiple: true
 
+      - name: Checksums
+        run: sha256sum *.tar.gz | tee SHA256SUMS
+
+      # Ties each archive to this workflow run and this commit, which is what
+      # makes the checksums worth checking: a SHA256SUMS file sitting beside
+      # the archives proves nothing on its own. Verify with
+      # `gh attestation verify <archive> --repo AcidDemon/plugkill`.
+      - name: Attest provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: "*.tar.gz"
+
+      - name: Release notes from the changelog
+        run: |
+          awk '/^## \[/{ if (seen) exit; seen=1; next } seen' CHANGELOG.md > NOTES.md
+          test -s NOTES.md
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: "*.tar.gz"
-          generate_release_notes: true
+          files: |
+            *.tar.gz
+            SHA256SUMS
+          body_path: NOTES.md
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}

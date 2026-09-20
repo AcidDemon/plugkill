@@ -3,8 +3,14 @@ name = "plugkill-gui"
 version = "0.1.0"
 edition = "2024"
 description = "System tray and settings GUI for plugkill"
-license = "GPL-3.0"
+license = "GPL-3.0-or-later"
 authors = ["AcidDemon"]
+repository = "https://github.com/AcidDemon/plugkill"
+homepage = "https://github.com/AcidDemon/plugkill"
+readme = "../../README.md"
+keywords = ["security", "kill-switch", "gtk", "tray", "gui"]
+categories = ["gui", "os::unix-apis"]
+rust-version = "1.88"
 
 [[bin]]
 name = "plugkill-gui"
