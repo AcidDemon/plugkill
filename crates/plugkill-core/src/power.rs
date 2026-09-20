@@ -1,7 +1,11 @@
+#[cfg(any(target_os = "linux", test))]
 use crate::sysfs::read_sysfs_attr;
+#[cfg(any(target_os = "linux", test))]
 use log::warn;
 use std::fmt;
+#[cfg(any(target_os = "linux", test))]
 use std::fs;
+#[cfg(any(target_os = "linux", test))]
 use std::path::Path;
 
 /// The power state of the system.

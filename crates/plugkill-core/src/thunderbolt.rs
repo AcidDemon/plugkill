@@ -1,9 +1,13 @@
 use crate::error::Error;
+#[cfg(any(target_os = "linux", test))]
 use crate::sysfs::read_sysfs_attr;
+#[cfg(any(target_os = "linux", test))]
 use log::warn;
 use std::collections::HashSet;
 use std::fmt;
+#[cfg(any(target_os = "linux", test))]
 use std::fs;
+#[cfg(any(target_os = "linux", test))]
 use std::path::Path;
 
 /// A unique identifier for a Thunderbolt device (by unique_id UUID).
@@ -126,6 +130,7 @@ impl ThunderboltSnapshot {
 /// Returns true if this sysfs entry name represents a real Thunderbolt device.
 /// Real devices match pattern like "0-0", "0-1", "1-3", etc.
 /// Skip domains (domain0), interfaces (0-0:1.1), and ports (usb4_port*).
+#[cfg(any(target_os = "linux", test))]
 fn is_real_device(name: &str) -> bool {
     if name.starts_with("domain") || name.contains(':') || name.starts_with("usb4_port") {
         return false;

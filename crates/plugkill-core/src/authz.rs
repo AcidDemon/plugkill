@@ -12,18 +12,7 @@ pub const ACTION_RELOAD: &str = "net.acidnetworks.plugkill.reload";
 /// violation. Revoking one is never gated.
 pub const ACTION_ALLOW: &str = "net.acidnetworks.plugkill.allow";
 
-/// Why a check was refused. Each reason names which failure it was, so the
-/// journal answers "why did that disarm not go through" after the fact.
-const REASON_DENIED: &str = "polkit denied the action";
-const REASON_NO_BUS: &str = "no system bus";
-const REASON_NO_SESSION: &str = "caller has no logind session";
-/// The pid has no session of its own and the uid has no display session
-/// either, so there is no subject to ask about (A4b). Distinct from
-/// `REASON_NO_SESSION`, which is logind or the bus failing to answer.
-const REASON_NO_DISPLAY_SESSION: &str = "caller has no logind session and no display session";
-const REASON_NO_AUTHORITY: &str = "polkit authority did not answer";
-const REASON_MALFORMED: &str = "polkit reply was malformed";
-const REASON_TIMEOUT: &str = "polkit did not answer in time";
+/// Said where polkit is not the authority, which is every platform but Linux.
 const REASON_NO_POLKIT: &str = "polkit is not available on this platform";
 
 /// The answer. Anything but `Allowed` is a refusal carrying a reason (B6).
@@ -78,6 +67,22 @@ fn no_polkit() -> Authorization {
 #[cfg(target_os = "linux")]
 mod linux {
     use super::*;
+
+    /// Why a check was refused. Each reason names which failure it was, so
+    /// the journal answers "why did that disarm not go through" after the
+    /// fact. They live here because polkit does: no other platform produces
+    /// one of them.
+    const REASON_DENIED: &str = "polkit denied the action";
+    const REASON_NO_BUS: &str = "no system bus";
+    const REASON_NO_SESSION: &str = "caller has no logind session";
+    /// The pid has no session of its own and the uid has no display session
+    /// either, so there is no subject to ask about (A4b). Distinct from
+    /// `REASON_NO_SESSION`, which is logind or the bus failing to answer.
+    const REASON_NO_DISPLAY_SESSION: &str = "caller has no logind session and no display session";
+    const REASON_NO_AUTHORITY: &str = "polkit authority did not answer";
+    const REASON_MALFORMED: &str = "polkit reply was malformed";
+    const REASON_TIMEOUT: &str = "polkit did not answer in time";
+
     use std::collections::HashMap;
     use std::io;
     use std::time::Duration;

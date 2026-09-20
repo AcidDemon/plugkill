@@ -1,6 +1,7 @@
 #[cfg(target_os = "linux")]
 use log::warn;
 use std::fmt;
+#[cfg(any(target_os = "linux", test))]
 use std::path::Path;
 
 /// State of the laptop lid.

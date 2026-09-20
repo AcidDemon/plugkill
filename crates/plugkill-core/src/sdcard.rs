@@ -1,9 +1,13 @@
 use crate::error::Error;
+#[cfg(any(target_os = "linux", test))]
 use crate::sysfs::read_sysfs_attr;
+#[cfg(any(target_os = "linux", test))]
 use log::warn;
 use std::collections::HashSet;
 use std::fmt;
+#[cfg(any(target_os = "linux", test))]
 use std::fs;
+#[cfg(any(target_os = "linux", test))]
 use std::path::Path;
 
 /// A unique identifier for an SD/MMC card (by serial number).
@@ -117,6 +121,7 @@ impl SdCardSnapshot {
 
 /// Returns true if this sysfs entry name represents an MMC card device.
 /// MMC card entries look like "mmc0:0001" (host:address).
+#[cfg(any(target_os = "linux", test))]
 fn is_mmc_card(name: &str) -> bool {
     name.starts_with("mmc") && name.contains(':')
 }
